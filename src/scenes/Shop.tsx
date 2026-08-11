@@ -41,7 +41,7 @@ export default function Shop() {
         <div className="bg-white rounded-3xl shadow p-8 text-center">
           <p className="text-brand-700 font-bold mb-4">✨ 진화하는 중... ✨</p>
           <div className="animate-[spin_1.2s_linear] inline-block">
-            <MonsterArt stage={evolving} size={200} />
+            <MonsterArt stage={evolving} size={200} speciesId={student.speciesId} />
           </div>
         </div>
       ) : (
@@ -90,7 +90,7 @@ export default function Shop() {
                 const already = stage <= student.stage;
                 return (
                   <div key={item.id} className={`bg-white rounded-2xl shadow p-4 flex items-center gap-3 ${!isNext && !already ? 'opacity-50' : ''}`}>
-                    <MonsterArt stage={stage} size={56} animated={false} />
+                    <MonsterArt stage={stage} size={56} animated={false} speciesId={student.speciesId} />
                     <div className="flex-1">
                       <p className="font-bold text-brand-900 text-sm">{item.name}</p>
                       <p className="text-xs text-brand-600">{item.description}</p>

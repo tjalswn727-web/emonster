@@ -4,6 +4,21 @@ import leafStage1 from '../assets/monsters/leaf/stage-1-baby.png';
 import leafStage2 from '../assets/monsters/leaf/stage-2-junior.png';
 import leafStage3 from '../assets/monsters/leaf/stage-3-teen.png';
 import leafStage4 from '../assets/monsters/leaf/stage-4-final.png';
+import crabStage0 from '../assets/monsters/crab/stage-0-egg.png';
+import crabStage1 from '../assets/monsters/crab/stage-1-baby.png';
+import crabStage2 from '../assets/monsters/crab/stage-2-junior.png';
+import crabStage3 from '../assets/monsters/crab/stage-3-teen.png';
+import crabStage4 from '../assets/monsters/crab/stage-4-final.png';
+import butterflyStage0 from '../assets/monsters/butterfly/stage-0-egg.png';
+import butterflyStage1 from '../assets/monsters/butterfly/stage-1-baby.png';
+import butterflyStage2 from '../assets/monsters/butterfly/stage-2-junior.png';
+import butterflyStage3 from '../assets/monsters/butterfly/stage-3-teen.png';
+import butterflyStage4 from '../assets/monsters/butterfly/stage-4-final.png';
+import starStage0 from '../assets/monsters/star/stage-0-egg.png';
+import starStage1 from '../assets/monsters/star/stage-1-baby.png';
+import starStage2 from '../assets/monsters/star/stage-2-junior.png';
+import starStage3 from '../assets/monsters/star/stage-3-teen.png';
+import starStage4 from '../assets/monsters/star/stage-4-final.png';
 
 interface MonsterArtProps {
   stage: EvolutionStage;
@@ -21,6 +36,27 @@ const SPECIES_ART: Partial<Record<string, Record<EvolutionStage, string>>> = {
     2: leafStage2,
     3: leafStage3,
     4: leafStage4,
+  },
+  crab: {
+    0: crabStage0,
+    1: crabStage1,
+    2: crabStage2,
+    3: crabStage3,
+    4: crabStage4,
+  },
+  butterfly: {
+    0: butterflyStage0,
+    1: butterflyStage1,
+    2: butterflyStage2,
+    3: butterflyStage3,
+    4: butterflyStage4,
+  },
+  star: {
+    0: starStage0,
+    1: starStage1,
+    2: starStage2,
+    3: starStage3,
+    4: starStage4,
   },
 };
 

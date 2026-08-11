@@ -71,8 +71,8 @@ export default function Onboarding() {
                   speciesId === sp.id ? 'border-brand-500 bg-brand-50' : 'border-brand-100 bg-white'
                 } ${!sp.available ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}`}
               >
-                {sp.id === 'leaf' ? (
-                  <MonsterArt stage={0} size={90} animated={false} />
+                {sp.available ? (
+                  <MonsterArt stage={0} size={90} animated={false} speciesId={sp.id} />
                 ) : (
                   <div className="w-[90px] h-[90px] flex items-center justify-center text-4xl">🥚</div>
                 )}
@@ -128,7 +128,7 @@ export default function Onboarding() {
           <p className="text-brand-600 font-semibold text-sm mb-2">🎉 사원증 발급 완료!</p>
           <div className="mx-auto max-w-xs rounded-2xl bg-gradient-to-br from-brand-100 to-brand-50 border-2 border-brand-300 p-5">
             <p className="text-xs text-brand-600 font-bold tracking-widest mb-2">EMOTION MONSTERS INC. ID</p>
-            <MonsterArt stage={0} size={100} animated={false} />
+            <MonsterArt stage={0} size={100} animated={false} speciesId={speciesId ?? 'leaf'} />
             <p className="mt-2 text-lg font-extrabold text-brand-900">{name}</p>
             <p className="text-xs text-brand-600 mt-1">사원번호 {issuedId.toUpperCase()}</p>
           </div>

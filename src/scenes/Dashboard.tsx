@@ -37,7 +37,7 @@ export default function Dashboard() {
           <p className="text-sm font-bold text-brand-700 mb-1">
             {species?.name} · {EVOLUTION_STAGE_LABELS[student.stage]}
           </p>
-          <MonsterArt stage={student.stage} size={190} />
+          <MonsterArt stage={student.stage} size={190} speciesId={student.speciesId} />
           <div className="mt-3 flex items-center justify-center gap-4">
             <div className="bg-brand-50 rounded-xl px-4 py-2">
               <p className="text-xs text-brand-600">보유 감정 에너지</p>
