@@ -1,15 +1,32 @@
 import type { EvolutionStage } from '../types';
+import leafStage0 from '../assets/monsters/leaf/stage-0-egg.png';
+import leafStage1 from '../assets/monsters/leaf/stage-1-baby.png';
+import leafStage2 from '../assets/monsters/leaf/stage-2-junior.png';
+import leafStage3 from '../assets/monsters/leaf/stage-3-teen.png';
+import leafStage4 from '../assets/monsters/leaf/stage-4-final.png';
 
 interface MonsterArtProps {
   stage: EvolutionStage;
   size?: number;
   animated?: boolean;
   className?: string;
+  /** 몬스터 종. 실제 아트가 준비된 종만 사진으로 렌더링하고, 나머지는 절차적 SVG로 대체 표시한다. */
+  speciesId?: string;
 }
 
-// 잎사귀몬스터(새싹몬스터) 진화 단계별 절차적 SVG 아트.
-// 참고 이미지(알 → 아기 → 주니어 → 시니어 → 파이널)를 바탕으로
-// 몸통 크기, 잎사귀 뿔의 크기/개수, 넝쿨 꼬리의 성장, 표정 디테일을 단계별로 보간해 표현한다.
+const SPECIES_ART: Partial<Record<string, Record<EvolutionStage, string>>> = {
+  leaf: {
+    0: leafStage0,
+    1: leafStage1,
+    2: leafStage2,
+    3: leafStage3,
+    4: leafStage4,
+  },
+};
+
+// --- 실제 아트가 아직 없는 종을 위한 절차적 SVG 대체 표현 ---
+// 참고 이미지를 바탕으로 몸통 크기, 잎사귀 뿔의 크기/개수, 넝쿨 꼬리의 성장, 표정 디테일을
+// 단계별로 보간해 표현한다. leaf 종은 위 SPECIES_ART의 실사진으로 대체된다.
 
 const LEAF_PATH =
   'M0,2 C-15,-14 -19,-38 -8,-56 C-2,-66 8,-68 14,-60 C20,-50 15,-36 4,-26 C10,-20 10,-10 4,-2 C2,1 1,2 0,2 Z';
@@ -37,26 +54,24 @@ function Leaf({
   );
 }
 
-// 몸통 오른쪽 옆구리에서 자라나는 넝쿨 꼬리. 단계가 오를수록 길어지고 끝에 봉오리 → 만개한 꽃으로 변한다.
 function Vine({ stage }: { stage: EvolutionStage }) {
   if (stage === 0) return null;
   const tips: Record<number, { x: number; y: number }> = {
-    1: { x: 158, y: 182 },
-    2: { x: 172, y: 162 },
-    3: { x: 180, y: 138 },
-    4: { x: 184, y: 112 },
-    5: { x: 186, y: 88 },
+    1: { x: 162, y: 172 },
+    2: { x: 178, y: 142 },
+    3: { x: 184, y: 108 },
+    4: { x: 186, y: 88 },
   };
   const start = { x: 136, y: 196 };
   const mid = { x: 150, y: 208 };
   const tip = tips[stage];
-  const bloom = stage >= 4;
+  const bloom = stage >= 3;
   const path = `M${start.x},${start.y} C${mid.x},${mid.y} ${tip.x + 14},${tip.y + 26} ${tip.x},${tip.y}`;
 
   return (
     <g>
       <path d={path} fill="none" stroke="#4c8f52" strokeWidth={5} strokeLinecap="round" />
-      {stage >= 3 && (
+      {stage >= 2 && (
         <g transform={`translate(${tip.x - 16} ${tip.y + 20}) rotate(20) scale(0.55)`}>
           <path d={LEAF_PATH} fill="#8ddb98" stroke="#2f6b3c" strokeWidth={1.5} />
         </g>
@@ -69,11 +84,11 @@ function Vine({ stage }: { stage: EvolutionStage }) {
               cx={0}
               cy={0}
               rx={4.5}
-              ry={stage === 5 ? 11 : 7}
+              ry={stage === 4 ? 11 : 7}
               fill="#fbe7f2"
               stroke="#e8b7d0"
               strokeWidth={1}
-              transform={`rotate(${a}) translate(0 ${stage === 5 ? -11 : -7})`}
+              transform={`rotate(${a}) translate(0 ${stage === 4 ? -11 : -7})`}
             />
           ))}
           <circle r={7} fill="#fff7d6" stroke="#e0a72e" strokeWidth={1.5} />
@@ -85,13 +100,13 @@ function Vine({ stage }: { stage: EvolutionStage }) {
   );
 }
 
-export default function MonsterArt({ stage, size = 220, animated = true, className = '' }: MonsterArtProps) {
-  const bodyScale = 0.72 + stage * 0.06;
-  const hornScale = 0.5 + stage * 0.16;
-  const hornCount = stage >= 5 ? 5 : stage >= 4 ? 3 : 2;
+function ProceduralMonster({ stage, size, animated, className }: Required<Pick<MonsterArtProps, 'stage' | 'size' | 'animated' | 'className'>>) {
+  const bodyScale = 0.72 + stage * 0.07;
+  const hornScale = 0.55 + stage * 0.2;
+  const hornCount = stage >= 4 ? 5 : stage >= 3 ? 3 : 2;
   const hasFace = stage >= 1;
-  const blush = stage >= 3;
-  const bodyFill = stage === 0 ? '#cdeecb' : stage <= 2 ? '#b9e8b9' : stage === 3 ? '#a3dfa5' : '#8fd497';
+  const blush = stage >= 2;
+  const bodyFill = stage === 0 ? '#cdeecb' : stage === 1 ? '#b9e8b9' : stage === 2 ? '#a3dfa5' : '#8fd497';
   const bellyFill = '#f4fbee';
 
   return (
@@ -139,7 +154,6 @@ export default function MonsterArt({ stage, size = 220, animated = true, classNa
           <ellipse cx="100" cy="140" rx="68" ry="62" fill={bodyFill} stroke="#4c8f52" strokeWidth={2.5} />
           <ellipse cx="100" cy="168" rx="34" ry="26" fill={bellyFill} opacity={0.85} />
 
-          {/* 팔/발 */}
           <ellipse cx="52" cy="188" rx="14" ry="11" fill={bodyFill} stroke="#4c8f52" strokeWidth={2} />
           <ellipse cx="148" cy="188" rx="14" ry="11" fill={bodyFill} stroke="#4c8f52" strokeWidth={2} />
 
@@ -164,7 +178,7 @@ export default function MonsterArt({ stage, size = 220, animated = true, classNa
                 <circle r="7.4" fill="#5b3a1e" cy="2" />
                 <circle r="2.6" cx="-2.5" cy="-1.5" fill="#fff" />
               </g>
-              {stage <= 2 ? (
+              {stage <= 1 ? (
                 <path d="M85,158 Q100,170 115,158" fill="none" stroke="#3a3a3a" strokeWidth={3} strokeLinecap="round" />
               ) : (
                 <path d="M82,156 Q100,178 118,156 Q100,168 82,156 Z" fill="#a4443f" stroke="#3a3a3a" strokeWidth={2.5} />
@@ -176,7 +190,6 @@ export default function MonsterArt({ stage, size = 220, animated = true, classNa
 
       <Vine stage={stage} />
 
-      {/* 잎사귀 뿔 */}
       {hornCount === 2 && (
         <>
           <Leaf x={72} y={stage === 0 ? 46 : 42} rotate={-24} scale={hornScale} fill="#7fd08a" vein="#3f7a49" />
@@ -201,4 +214,24 @@ export default function MonsterArt({ stage, size = 220, animated = true, classNa
       )}
     </svg>
   );
+}
+
+export default function MonsterArt({ stage, size = 220, animated = true, className = '', speciesId = 'leaf' }: MonsterArtProps) {
+  const photo = SPECIES_ART[speciesId]?.[stage];
+
+  if (photo) {
+    return (
+      <img
+        src={photo}
+        alt={`진화 ${stage}단계 몬스터`}
+        width={size}
+        height={size}
+        className={`${animated ? 'animate-float' : ''} ${className}`}
+        style={{ objectFit: 'contain', objectPosition: 'bottom center' }}
+        draggable={false}
+      />
+    );
+  }
+
+  return <ProceduralMonster stage={stage} size={size} animated={animated} className={className} />;
 }

@@ -1,13 +1,14 @@
 export type ZoneColor = 'blue' | 'green' | 'yellow' | 'red';
 
-export type EvolutionStage = 0 | 1 | 2 | 3 | 4 | 5;
+// 0=알, 1=유아, 2=어린이, 3=청소년, 4=성인(최종)
+export type EvolutionStage = 0 | 1 | 2 | 3 | 4;
 
 export interface MonsterSpecies {
   id: string;
   name: string;
   tagline: string;
   available: boolean;
-  stageNames: [string, string, string, string, string, string];
+  stageNames: [string, string, string, string, string];
   primaryColor: string;
 }
 
