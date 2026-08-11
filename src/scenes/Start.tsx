@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import MonsterArt from '../components/MonsterArt';
+import GuideMascot from '../components/GuideMascot';
 import { useStore } from '../store/useStore';
 
 export default function Start() {
@@ -25,7 +25,7 @@ export default function Start() {
         <h1 className="text-2xl font-extrabold text-brand-900 mb-4">감정 몬스터 주식회사</h1>
 
         <div className="flex justify-center mb-2">
-          <MonsterArt stage={2} size={180} />
+          <GuideMascot size={180} />
         </div>
         <p className="text-brand-800 mb-6 leading-relaxed">
           안녕! 나는 감정 몬스터 주식회사의 안내 몬스터야.

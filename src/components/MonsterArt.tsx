@@ -262,8 +262,8 @@ export default function MonsterArt({ stage, size = 220, animated = true, classNa
         alt={`진화 ${stage}단계 몬스터`}
         width={size}
         height={size}
-        className={`${animated ? 'animate-float' : ''} ${className}`}
-        style={{ objectFit: 'contain', objectPosition: 'bottom center' }}
+        className={`block mx-auto ${animated ? 'animate-float' : ''} ${className}`}
+        style={{ objectFit: 'contain', objectPosition: 'center center' }}
         draggable={false}
       />
     );

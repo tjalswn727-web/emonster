@@ -53,25 +53,23 @@ export default function Regulate() {
   return (
     <PageShell
       title="감정 에너지 관리하기"
-      subtitle={phase === 'zone' ? '지금 내 마음은 어떤 색깔일까?' : '마음을 다스려볼까?'}
+      subtitle={phase === 'zone' ? '지금 내 마음은 어떤 색깔일까?' : phase === 'tools' ? '마음을 다스려볼까?' : undefined}
       onBack={phase === 'zone' ? '/dashboard' : () => setPhase('zone')}
     >
       {phase === 'zone' && (
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid grid-cols-1 gap-4">
           {(Object.values(ZONES) as (typeof ZONES)['blue'][]).map((z) => (
-            <div key={z.id} className={`rounded-2xl p-4 ${z.bg}`}>
-              <p className={`font-bold ${z.text}`}>
-                {z.name} <span className="font-normal text-brand-700 text-sm">· {z.description}</span>
-              </p>
+            <div key={z.id} className={`rounded-3xl p-4 ${z.bg}`}>
+              <p className={`font-extrabold text-lg ${z.text}`}>{z.name}</p>
               <div className="mt-2 grid grid-cols-2 gap-3">
                 {z.options.map((opt) => (
                   <button
                     key={opt.label}
                     onClick={() => handlePickOption(z.id, opt.emoji, opt.label)}
-                    className="min-h-[80px] rounded-xl bg-white shadow flex flex-col items-center justify-center gap-1 active:scale-95 transition"
+                    className="min-h-[104px] rounded-2xl bg-white shadow flex flex-col items-center justify-center gap-1 active:scale-95 transition"
                   >
-                    <span className="text-3xl">{opt.emoji}</span>
-                    <span className="font-bold text-brand-900 text-sm">{opt.label}</span>
+                    <span className="text-5xl">{opt.emoji}</span>
+                    <span className="font-bold text-brand-900 text-base">{opt.label}</span>
                   </button>
                 ))}
               </div>
@@ -103,7 +101,7 @@ export default function Regulate() {
           )}
 
           <div className="bg-white rounded-2xl shadow p-5">
-            <p className="font-bold text-brand-900 mb-3">마음을 다스리는 도구를 골라봐</p>
+            <p className="font-bold text-brand-900 text-lg mb-3">마음을 다스리는 도구를 골라봐</p>
             <div className="grid grid-cols-1 gap-3">
               {REGULATION_TOOLS.map((t) => (
                 <button
@@ -112,12 +110,12 @@ export default function Regulate() {
                     setActiveTool(t.id);
                     setPhase('tool-active');
                   }}
-                  className="min-h-[80px] rounded-xl border-2 border-brand-100 bg-brand-50/50 flex items-center gap-3 px-4 active:scale-95 transition"
+                  className="min-h-[92px] rounded-2xl border-2 border-brand-100 bg-brand-50/50 flex items-center gap-4 px-5 active:scale-95 transition"
                 >
-                  <span className="text-3xl">{t.icon}</span>
+                  <span className="text-5xl">{t.icon}</span>
                   <span className="text-left">
-                    <span className="block font-bold text-brand-900">{t.name}</span>
-                    <span className="block text-xs text-brand-600">{t.description}</span>
+                    <span className="block font-bold text-brand-900 text-lg">{t.name}</span>
+                    <span className="block text-sm text-brand-600">{t.description}</span>
                   </span>
                 </button>
               ))}
@@ -131,7 +129,7 @@ export default function Regulate() {
       )}
 
       {phase === 'tool-active' && activeTool && (
-        <div className="bg-white rounded-2xl shadow p-5">
+        <div className="rounded-3xl p-6 bg-gradient-to-b from-brand-50 to-white shadow-inner min-h-[420px] flex flex-col items-center justify-center">
           {activeTool === 'count10' && <CountTool onComplete={handleToolComplete} />}
           {activeTool === 'breathe' && <BreatheTool onComplete={handleToolComplete} />}
           {activeTool === 'cards' && <CardsTool onComplete={handleToolComplete} />}

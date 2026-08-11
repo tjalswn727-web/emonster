@@ -5,68 +5,69 @@ import Toast from '../components/Toast';
 import { EMOTION_CATEGORIES } from '../data/emotionWords';
 import { ZONES } from '../data/zones';
 import { useCurrentStudent } from '../store/hooks';
-import { useStore } from '../store/useStore';
+import { hasJournalToday, todayJournalEntry, useStore } from '../store/useStore';
 
 const THERMO_COLORS = ['#4a90d9', '#4a90d9', '#4caf6e', '#4caf6e', '#4caf6e', '#e0a72e', '#e0a72e', '#e0a72e', '#e2534d', '#e2534d'];
 
 export default function Journal() {
   const navigate = useNavigate();
   const student = useCurrentStudent();
+  const journalEntries = useStore((s) => s.journalEntries);
   const addJournalEntry = useStore((s) => s.addJournalEntry);
   const addPoints = useStore((s) => s.addPoints);
+  const energyRules = useStore((s) => s.energyRules);
 
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [word, setWord] = useState<string | null>(null);
   const [thermo, setThermo] = useState(5);
   const [content, setContent] = useState('');
   const [toast, setToast] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
 
   const category = useMemo(() => EMOTION_CATEGORIES.find((c) => c.id === categoryId) || null, [categoryId]);
 
   if (!student) return null;
 
+  const alreadyToday = hasJournalToday(student.id, journalEntries);
+  const todaysEntry = todayJournalEntry(student.id, journalEntries);
   const canSave = categoryId !== null && word !== null && content.trim().length > 0;
 
   const handleSave = () => {
     if (!canSave || !category || !word) return;
-    addJournalEntry({
+    const res = addJournalEntry({
       studentId: student.id,
       category: category.name,
       word,
       thermometer: thermo,
       journalContent: content.trim(),
     });
-    addPoints(student.id, 5);
-    setToast('일지 저장 완료! 감정 에너지 +5pt');
-    setSaved(true);
+    if (!res.ok) {
+      setToast(res.error || '저장에 실패했어요.');
+      return;
+    }
+    addPoints(student.id, energyRules.journal);
+    setToast(`일지 저장 완료! 감정 에너지 +${energyRules.journal}pt`);
+    setJustSaved(true);
   };
 
-  const handleReset = () => {
-    setCategoryId(null);
-    setWord(null);
-    setThermo(5);
-    setContent('');
-    setSaved(false);
-  };
-
-  if (saved) {
+  if (alreadyToday && todaysEntry) {
     return (
       <PageShell title="주식회사 일지" onBack="/dashboard">
-        <div className="bg-white rounded-2xl shadow p-6 text-center animate-pop">
-          <p className="text-4xl mb-2">📓✨</p>
-          <p className="font-bold text-brand-900">오늘의 일지가 저장되었어요!</p>
+        <div className={`bg-white rounded-2xl shadow p-6 text-center ${justSaved ? 'animate-pop' : ''}`}>
+          <p className="text-4xl mb-2">{justSaved ? '📓✨' : '📓✅'}</p>
+          <p className="font-bold text-brand-900">{justSaved ? '오늘의 일지가 저장되었어요!' : '오늘의 일지는 이미 작성했어요!'}</p>
           <p className="text-sm text-brand-600 mt-1">
-            {category?.name} · “{word}” · 온도 {thermo}
+            {justSaved ? '주식회사 일지는 하루에 한 번만 쓸 수 있어요. 내일 또 만나요!' : '주식회사 일지는 하루에 한 번만 쓸 수 있어요. 내일 또 들려줘!'}
           </p>
-          <div className="flex gap-2 mt-5">
-            <button onClick={handleReset} className="flex-1 py-3 rounded-xl bg-white border-2 border-brand-300 text-brand-800 font-bold">
-              한 번 더 쓰기
-            </button>
-            <button onClick={() => navigate('/dashboard')} className="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold shadow">
-              로비로
-            </button>
+          <div className="mt-4 text-left bg-brand-50 rounded-xl p-4 space-y-1">
+            <p className="text-xs text-brand-500">
+              {todaysEntry.category} · “{todaysEntry.word}” · 온도 {todaysEntry.thermometer}
+            </p>
+            <p className="text-sm text-brand-800 mt-2">{todaysEntry.journalContent}</p>
           </div>
+          <button onClick={() => navigate('/dashboard')} className="mt-5 w-full py-3 rounded-xl bg-brand-500 text-white font-bold shadow">
+            로비로 돌아가기
+          </button>
         </div>
         {toast && <Toast message={toast} onDone={() => setToast(null)} />}
       </PageShell>
@@ -74,7 +75,7 @@ export default function Journal() {
   }
 
   return (
-    <PageShell title="주식회사 일지" subtitle="오늘의 감정을 기록해요" onBack="/dashboard" wide>
+    <PageShell title="주식회사 일지" subtitle="오늘의 감정을 기록해요 (하루 1회)" onBack="/dashboard" wide>
       <div className="bg-white rounded-2xl shadow p-5 space-y-5">
         <div>
           <p className="font-bold text-brand-900 mb-2">1. 감정 카테고리를 골라줘</p>
@@ -153,6 +154,8 @@ export default function Journal() {
           일지 저장하기
         </button>
       </div>
+
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </PageShell>
   );
 }

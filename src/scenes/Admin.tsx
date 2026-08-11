@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import PageShell from '../components/PageShell';
 import { EVOLUTION_STAGE_LABELS, MONSTER_SPECIES } from '../data/monsters';
 import { ZONES } from '../data/zones';
-import { useStore, zoneRedCountToday } from '../store/useStore';
+import { ENERGY_RULE_LABELS, useStore, zoneRedCountToday, type EnergyRules } from '../store/useStore';
 import type { ShopItem } from '../types';
 
 function timeStr(iso: string) {
@@ -20,10 +20,13 @@ export default function Admin() {
   const resolveSOS = useStore((s) => s.resolveSOS);
   const addShopItem = useStore((s) => s.addShopItem);
   const removeShopItem = useStore((s) => s.removeShopItem);
+  const energyRules = useStore((s) => s.energyRules);
+  const setEnergyRule = useStore((s) => s.setEnergyRule);
 
-  const [tab, setTab] = useState<'status' | 'shop'>('status');
+  const [tab, setTab] = useState<'status' | 'shop' | 'energy'>('status');
   const [amounts, setAmounts] = useState<Record<string, number>>({});
   const [newItem, setNewItem] = useState({ name: '', description: '', cost: 20, icon: '🎁' });
+  const [ruleDrafts, setRuleDrafts] = useState<Partial<Record<keyof EnergyRules, number>>>({});
 
   const studentList = Object.values(students);
 
@@ -64,6 +67,9 @@ export default function Admin() {
         </button>
         <button onClick={() => setTab('shop')} className={`flex-1 py-2 rounded-full font-bold text-sm transition ${tab === 'shop' ? 'bg-brand-700 text-white' : 'text-brand-700'}`}>
           🏪 매점 상품 설정
+        </button>
+        <button onClick={() => setTab('energy')} className={`flex-1 py-2 rounded-full font-bold text-sm transition ${tab === 'energy' ? 'bg-brand-700 text-white' : 'text-brand-700'}`}>
+          ⚡ 에너지 설정
         </button>
       </div>
 
@@ -214,6 +220,46 @@ export default function Admin() {
                   </button>
                 </div>
               ))}
+          </div>
+        </div>
+      )}
+
+      {tab === 'energy' && (
+        <div className="space-y-4">
+          <p className="text-sm text-brand-600 bg-white rounded-xl p-4 shadow-sm">
+            활동별로 지급되는 감정 에너지 양을 조정할 수 있어요. 저장 즉시 새로 활동하는 학생부터 적용돼요.
+          </p>
+          <div className="bg-white rounded-2xl shadow divide-y divide-brand-50">
+            {(Object.keys(ENERGY_RULE_LABELS) as (keyof EnergyRules)[]).map((key) => {
+              const label = ENERGY_RULE_LABELS[key];
+              const draft = ruleDrafts[key] ?? energyRules[key];
+              return (
+                <div key={key} className="p-4 flex items-center gap-3">
+                  <div className="flex-1">
+                    <p className="font-bold text-brand-900 text-sm">{label.title}</p>
+                    <p className="text-xs text-brand-600">{label.desc}</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="text-brand-500 text-sm">⚡</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={draft}
+                      onChange={(e) => setRuleDrafts((d) => ({ ...d, [key]: Number(e.target.value) }))}
+                      className="w-16 rounded-lg border border-brand-200 px-2 py-1 text-sm"
+                    />
+                    <span className="text-brand-500 text-sm">pt</span>
+                    <button
+                      onClick={() => setEnergyRule(key, draft)}
+                      disabled={draft === energyRules[key]}
+                      className="ml-1 px-2 py-1 rounded-lg bg-brand-500 text-white text-sm font-bold disabled:opacity-30"
+                    >
+                      저장
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

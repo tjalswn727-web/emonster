@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import GuideMascot from '../components/GuideMascot';
 import MonsterArt from '../components/MonsterArt';
 import PageShell from '../components/PageShell';
 import { MONSTER_SPECIES } from '../data/monsters';
@@ -40,7 +41,7 @@ export default function Onboarding() {
     <PageShell title="온보딩" subtitle="사원증 발급" onBack="/">
       {step === 'intro' && (
         <div className="bg-white rounded-2xl shadow p-6 text-center">
-          <MonsterArt stage={1} size={150} />
+          <GuideMascot size={150} />
           <p className="mt-4 text-brand-800 leading-relaxed">
             반가워! 나는 감정 몬스터 주식회사의 안내 몬스터야.
             <br />
