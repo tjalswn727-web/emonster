@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { JournalEntry, MoodEntry, PurchaseRecord, ShopItem, Student, ZoneColor, EvolutionStage } from '../types';
+import type { CollectEntry, JournalEntry, MoodEntry, PurchaseRecord, ShopItem, Student, ZoneColor, EvolutionStage } from '../types';
 import { EVOLUTION_STONES, SHOP_REWARD_ITEMS } from '../data/monsters';
+import { pushRowToSheet } from '../lib/sheetsSync';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -38,6 +39,8 @@ interface StoreState {
   purchases: PurchaseRecord[];
   shopItems: ShopItem[];
   energyRules: EnergyRules;
+  collectEntries: CollectEntry[];
+  sheetsWebhookUrl: string | null;
 
   registerStudent: (name: string, password: string, speciesId: string) => { ok: boolean; error?: string; id?: string };
   login: (name: string, password: string) => { ok: boolean; error?: string };
@@ -56,7 +59,9 @@ interface StoreState {
   sendSOS: (entryId: string) => void;
   setEntryTool: (entryId: string, toolName: string, rewardDelta: number) => void;
 
-  addJournalEntry: (entry: Omit<JournalEntry, 'id' | 'timestamp'>) => { ok: boolean; error?: string };
+  addJournalEntry: (entry: Omit<JournalEntry, 'id' | 'timestamp' | 'speciesId'>) => { ok: boolean; error?: string };
+  addCollectEntry: (entry: Omit<CollectEntry, 'id' | 'timestamp' | 'speciesId'>) => { ok: boolean; error?: string };
+  setSheetsWebhookUrl: (url: string | null) => void;
 
   canUseTool: (studentId: string, toolId: string) => boolean;
   useTool: (studentId: string, toolId: string) => number;
@@ -80,6 +85,8 @@ export const useStore = create<StoreState>()(
       purchases: [],
       shopItems: [...SHOP_REWARD_ITEMS, ...EVOLUTION_STONES],
       energyRules: DEFAULT_ENERGY_RULES,
+      collectEntries: [],
+      sheetsWebhookUrl: null,
 
       registerStudent: (name, password, speciesId) => {
         const { students } = get();
@@ -192,6 +199,17 @@ export const useStore = create<StoreState>()(
         const newEntry: MoodEntry = { ...entry, id: uid(), timestamp: new Date().toISOString() };
         set((state) => ({ moodEntries: [newEntry, ...state.moodEntries] }));
         if (entry.reward) get().addPoints(entry.studentId, entry.reward);
+        const webhookUrl = get().sheetsWebhookUrl;
+        if (webhookUrl) {
+          const student = get().students[entry.studentId];
+          pushRowToSheet(webhookUrl, '실시간 기분', {
+            Timestamp: newEntry.timestamp,
+            Student_Name: student?.name ?? '',
+            Color_Zone: newEntry.colorZone,
+            Emoji: newEntry.emoji,
+            Help_Requested: newEntry.helpRequested ? 'Y' : 'N',
+          });
+        }
         return newEntry.id;
       },
 
@@ -217,10 +235,44 @@ export const useStore = create<StoreState>()(
         if (hasJournalToday(entry.studentId, get().journalEntries)) {
           return { ok: false, error: '오늘은 이미 일지를 작성했어요. 내일 다시 써볼까요?' };
         }
-        const newEntry: JournalEntry = { ...entry, id: uid(), timestamp: new Date().toISOString() };
+        const student = get().students[entry.studentId];
+        const newEntry: JournalEntry = {
+          ...entry,
+          id: uid(),
+          timestamp: new Date().toISOString(),
+          speciesId: student?.speciesId ?? '',
+        };
         set((state) => ({ journalEntries: [newEntry, ...state.journalEntries] }));
+        const webhookUrl = get().sheetsWebhookUrl;
+        if (webhookUrl) {
+          pushRowToSheet(webhookUrl, '감정 일지', {
+            Timestamp: newEntry.timestamp,
+            Student_Name: student?.name ?? '',
+            Category: newEntry.category,
+            Word: newEntry.word,
+            Thermometer: newEntry.thermometer,
+            Journal_Content: newEntry.journalContent,
+          });
+        }
         return { ok: true };
       },
+
+      addCollectEntry: (entry) => {
+        if (hasCollectToday(entry.studentId, get().collectEntries)) {
+          return { ok: false, error: '오늘은 이미 감정 에너지를 수집했어요. 내일 다시 해볼까요?' };
+        }
+        const student = get().students[entry.studentId];
+        const newEntry: CollectEntry = {
+          ...entry,
+          id: uid(),
+          timestamp: new Date().toISOString(),
+          speciesId: student?.speciesId ?? '',
+        };
+        set((state) => ({ collectEntries: [newEntry, ...state.collectEntries] }));
+        return { ok: true };
+      },
+
+      setSheetsWebhookUrl: (url) => set({ sheetsWebhookUrl: url }),
 
       canUseTool: (studentId, toolId) => {
         const s = get().students[studentId];
@@ -296,6 +348,16 @@ export const hasJournalToday = (studentId: string, entries: JournalEntry[]) => {
 };
 
 export const todayJournalEntry = (studentId: string, entries: JournalEntry[]) => {
+  const today = new Date().toDateString();
+  return entries.find((e) => e.studentId === studentId && new Date(e.timestamp).toDateString() === today) || null;
+};
+
+export const hasCollectToday = (studentId: string, entries: CollectEntry[]) => {
+  const today = new Date().toDateString();
+  return entries.some((e) => e.studentId === studentId && new Date(e.timestamp).toDateString() === today);
+};
+
+export const todayCollectEntry = (studentId: string, entries: CollectEntry[]) => {
   const today = new Date().toDateString();
   return entries.find((e) => e.studentId === studentId && new Date(e.timestamp).toDateString() === today) || null;
 };

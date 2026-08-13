@@ -3,8 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import PageShell from '../components/PageShell';
 import { EVOLUTION_STAGE_LABELS, MONSTER_SPECIES } from '../data/monsters';
 import { ZONES } from '../data/zones';
+import { SHEETS_APPS_SCRIPT_CODE } from '../lib/sheetsSync';
 import { ENERGY_RULE_LABELS, useStore, zoneRedCountToday, type EnergyRules } from '../store/useStore';
 import type { ShopItem } from '../types';
+
+function csvEscape(value: string | number): string {
+  const str = String(value);
+  if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+}
+
+function toCsv(headers: string[], rows: (string | number)[][]): string {
+  return [headers.map(csvEscape).join(','), ...rows.map((r) => r.map(csvEscape).join(','))].join('\n');
+}
 
 function timeStr(iso: string) {
   return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
@@ -14,6 +25,7 @@ export default function Admin() {
   const navigate = useNavigate();
   const students = useStore((s) => s.students);
   const moodEntries = useStore((s) => s.moodEntries);
+  const journalEntries = useStore((s) => s.journalEntries);
   const shopItems = useStore((s) => s.shopItems);
   const teacherLogout = useStore((s) => s.teacherLogout);
   const teacherAdjustPoints = useStore((s) => s.teacherAdjustPoints);
@@ -22,11 +34,17 @@ export default function Admin() {
   const removeShopItem = useStore((s) => s.removeShopItem);
   const energyRules = useStore((s) => s.energyRules);
   const setEnergyRule = useStore((s) => s.setEnergyRule);
+  const sheetsWebhookUrl = useStore((s) => s.sheetsWebhookUrl);
+  const setSheetsWebhookUrl = useStore((s) => s.setSheetsWebhookUrl);
 
-  const [tab, setTab] = useState<'status' | 'shop' | 'energy'>('status');
+  const [tab, setTab] = useState<'status' | 'shop' | 'energy' | 'sync'>('status');
   const [amounts, setAmounts] = useState<Record<string, number>>({});
-  const [newItem, setNewItem] = useState({ name: '', description: '', cost: 20, icon: '🎁' });
+  const [newItem, setNewItem] = useState({ name: '', description: '', cost: 20, icon: '🎁', imageUrl: '' });
   const [ruleDrafts, setRuleDrafts] = useState<Partial<Record<keyof EnergyRules, number>>>({});
+  const [webhookDraft, setWebhookDraft] = useState(sheetsWebhookUrl ?? '');
+  const [showSetupGuide, setShowSetupGuide] = useState(false);
+  const [journalCsv, setJournalCsv] = useState<string | null>(null);
+  const [moodCsv, setMoodCsv] = useState<string | null>(null);
 
   const studentList = Object.values(students);
 
@@ -54,9 +72,44 @@ export default function Admin() {
       cost: newItem.cost,
       type: 'reward',
       icon: newItem.icon || '🎁',
+      imageUrl: newItem.imageUrl.trim() || undefined,
     };
     addShopItem(item);
-    setNewItem({ name: '', description: '', cost: 20, icon: '🎁' });
+    setNewItem({ name: '', description: '', cost: 20, icon: '🎁', imageUrl: '' });
+  };
+
+  const handleSaveWebhook = () => setSheetsWebhookUrl(webhookDraft.trim() || null);
+
+  const handleCopy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // 클립보드 권한이 없으면 아래 텍스트 상자에서 직접 선택해 복사하면 돼요.
+    }
+  };
+
+  const buildJournalCsv = () => {
+    const rows = journalEntries.map((e) => [
+      e.timestamp,
+      students[e.studentId]?.name ?? '알 수 없음',
+      e.category,
+      e.word,
+      e.thermometer,
+      e.journalContent,
+    ]);
+    setJournalCsv(toCsv(['Timestamp', 'Student_Name', 'Category', 'Word', 'Thermometer', 'Journal_Content'], rows));
+  };
+
+  const buildMoodCsv = () => {
+    const rows = moodEntries.map((e) => [
+      e.timestamp,
+      students[e.studentId]?.name ?? '알 수 없음',
+      e.colorZone,
+      e.emoji,
+      e.usedTool ?? '',
+      e.helpRequested ? 'Y' : 'N',
+    ]);
+    setMoodCsv(toCsv(['Timestamp', 'Student_Name', 'Color_Zone', 'Emoji', 'Used_Tool', 'Help_Requested'], rows));
   };
 
   return (
@@ -70,6 +123,9 @@ export default function Admin() {
         </button>
         <button onClick={() => setTab('energy')} className={`flex-1 py-2 rounded-full font-bold text-sm transition ${tab === 'energy' ? 'bg-brand-700 text-white' : 'text-brand-700'}`}>
           ⚡ 에너지 설정
+        </button>
+        <button onClick={() => setTab('sync')} className={`flex-1 py-2 rounded-full font-bold text-sm transition ${tab === 'sync' ? 'bg-brand-700 text-white' : 'text-brand-700'}`}>
+          🔗 데이터 연동
         </button>
       </div>
 
@@ -189,6 +245,12 @@ export default function Admin() {
               className="mt-2 w-full rounded-lg border border-brand-200 px-2 py-2"
               placeholder="상품 설명"
             />
+            <input
+              value={newItem.imageUrl}
+              onChange={(e) => setNewItem((v) => ({ ...v, imageUrl: e.target.value }))}
+              className="mt-2 w-full rounded-lg border border-brand-200 px-2 py-2"
+              placeholder="이미지 URL (선택 · 비워두면 이모지 아이콘 사용)"
+            />
             <div className="mt-2 flex items-center gap-2">
               <label className="text-sm text-brand-700">가격</label>
               <input
@@ -208,7 +270,11 @@ export default function Admin() {
               .filter((i) => i.type === 'reward')
               .map((item) => (
                 <div key={item.id} className="p-3 flex items-center gap-3">
-                  <span className="text-2xl">{item.icon}</span>
+                  {item.imageUrl ? (
+                    <img src={item.imageUrl} alt={item.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                  ) : (
+                    <span className="text-2xl shrink-0">{item.icon}</span>
+                  )}
                   <div className="flex-1">
                     <p className="font-bold text-brand-900 text-sm">{item.name}</p>
                     <p className="text-xs text-brand-600">
@@ -269,6 +335,104 @@ export default function Admin() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {tab === 'sync' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl shadow p-4">
+            <h2 className="font-bold text-brand-900 mb-1">구글 스프레드시트 자동 연동</h2>
+            <p className="text-sm text-brand-600 mb-3">
+              구글 시트를 "웹 앱"으로 연결해두면, 학생이 일지를 쓰거나 감정 체크인을 할 때마다 시트에 자동으로 한 줄씩 기록돼요.
+            </p>
+
+            {sheetsWebhookUrl && (
+              <div className="mb-3 bg-brand-50 rounded-lg p-2 text-xs text-brand-700 flex items-center justify-between gap-2">
+                <span className="truncate">✅ 연동됨: {sheetsWebhookUrl}</span>
+                <button onClick={() => setSheetsWebhookUrl(null)} className="shrink-0 text-red-500 font-bold underline underline-offset-2">
+                  해제
+                </button>
+              </div>
+            )}
+
+            <label className="text-sm font-semibold text-brand-800">웹 앱 URL</label>
+            <div className="mt-1 flex gap-2">
+              <input
+                value={webhookDraft}
+                onChange={(e) => setWebhookDraft(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="flex-1 rounded-lg border border-brand-200 px-3 py-2 text-sm"
+              />
+              <button onClick={handleSaveWebhook} className="px-4 py-2 rounded-lg bg-brand-500 text-white font-bold text-sm shrink-0">
+                저장
+              </button>
+            </div>
+
+            <button onClick={() => setShowSetupGuide((v) => !v)} className="mt-3 text-sm text-brand-600 underline underline-offset-2">
+              {showSetupGuide ? '연동 방법 접기' : '연동 방법 보기 ▸ 구글 시트 웹 앱 URL은 어떻게 만드나요?'}
+            </button>
+
+            {showSetupGuide && (
+              <div className="mt-3 bg-brand-50 rounded-xl p-3 text-sm text-brand-800 space-y-2">
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>sheets.google.com에서 새 스프레드시트를 만들어요.</li>
+                  <li>상단 메뉴 "확장 프로그램 → Apps Script"를 눌러요.</li>
+                  <li>아래 코드를 전체 선택해서 그대로 붙여넣고 저장해요.</li>
+                  <li>"배포 → 새 배포 → 유형: 웹 앱" 선택, 실행 사용자 "나", 액세스 권한 "모든 사용자"로 배포해요.</li>
+                  <li>배포 후 나오는 웹 앱 URL을 위 입력칸에 붙여넣고 저장하면 끝이에요!</li>
+                </ol>
+                <div className="relative">
+                  <pre className="bg-white rounded-lg p-2 text-[11px] overflow-x-auto whitespace-pre-wrap break-all border border-brand-200">
+                    {SHEETS_APPS_SCRIPT_CODE}
+                  </pre>
+                  <button
+                    onClick={() => handleCopy(SHEETS_APPS_SCRIPT_CODE)}
+                    className="mt-1 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-xs font-bold"
+                  >
+                    코드 복사하기
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl shadow p-4">
+            <h2 className="font-bold text-brand-900 mb-1">지금 바로 보기 (CSV)</h2>
+            <p className="text-sm text-brand-600 mb-3">시트 연동 없이도, 지금까지 쌓인 기록을 CSV 텍스트로 바로 뽑아서 복사해 붙여넣을 수 있어요.</p>
+
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={buildJournalCsv} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold">
+                📓 감정 일지 CSV 만들기 ({journalEntries.length}건)
+              </button>
+              <button onClick={buildMoodCsv} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold">
+                🧭 실시간 기분 CSV 만들기 ({moodEntries.length}건)
+              </button>
+            </div>
+
+            {journalCsv && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-bold text-brand-700">감정 일지 CSV</p>
+                  <button onClick={() => handleCopy(journalCsv)} className="text-xs px-2 py-1 rounded-lg bg-brand-100 text-brand-700 font-bold">
+                    복사하기
+                  </button>
+                </div>
+                <textarea readOnly value={journalCsv} rows={6} className="w-full rounded-lg border border-brand-200 p-2 text-[11px] font-mono" onFocus={(e) => e.target.select()} />
+              </div>
+            )}
+
+            {moodCsv && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-bold text-brand-700">실시간 기분 CSV</p>
+                  <button onClick={() => handleCopy(moodCsv)} className="text-xs px-2 py-1 rounded-lg bg-brand-100 text-brand-700 font-bold">
+                    복사하기
+                  </button>
+                </div>
+                <textarea readOnly value={moodCsv} rows={6} className="w-full rounded-lg border border-brand-200 p-2 text-[11px] font-mono" onFocus={(e) => e.target.select()} />
+              </div>
+            )}
           </div>
         </div>
       )}

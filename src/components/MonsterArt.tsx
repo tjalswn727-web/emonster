@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { EvolutionStage } from '../types';
 import leafStage0 from '../assets/monsters/leaf/stage-0-egg.png';
 import leafStage1 from '../assets/monsters/leaf/stage-1-baby.png';
@@ -27,7 +28,11 @@ interface MonsterArtProps {
   className?: string;
   /** 몬스터 종. 실제 아트가 준비된 종만 사진으로 렌더링하고, 나머지는 절차적 SVG로 대체 표시한다. */
   speciesId?: string;
+  /** true면 아직 도달하지 못한 단계임을 나타내는 짙은 실루엣(그림자)으로 렌더링해 다음 모습을 추측하기 어렵게 한다. */
+  locked?: boolean;
 }
+
+const LOCKED_STYLE: CSSProperties = { filter: 'brightness(0) opacity(0.4) blur(1.5px)' };
 
 const SPECIES_ART: Partial<Record<string, Record<EvolutionStage, string>>> = {
   leaf: {
@@ -136,7 +141,13 @@ function Vine({ stage }: { stage: EvolutionStage }) {
   );
 }
 
-function ProceduralMonster({ stage, size, animated, className }: Required<Pick<MonsterArtProps, 'stage' | 'size' | 'animated' | 'className'>>) {
+function ProceduralMonster({
+  stage,
+  size,
+  animated,
+  className,
+  style,
+}: Required<Pick<MonsterArtProps, 'stage' | 'size' | 'animated' | 'className'>> & { style?: CSSProperties }) {
   const bodyScale = 0.72 + stage * 0.07;
   const hornScale = 0.55 + stage * 0.2;
   const hornCount = stage >= 4 ? 5 : stage >= 3 ? 3 : 2;
@@ -150,6 +161,7 @@ function ProceduralMonster({ stage, size, animated, className }: Required<Pick<M
       viewBox="0 0 200 220"
       width={size}
       height={size}
+      style={style}
       className={`${animated ? 'animate-float' : ''} ${className}`}
       role="img"
       aria-label={`진화 ${stage}단계 몬스터`}
@@ -252,22 +264,23 @@ function ProceduralMonster({ stage, size, animated, className }: Required<Pick<M
   );
 }
 
-export default function MonsterArt({ stage, size = 220, animated = true, className = '', speciesId = 'leaf' }: MonsterArtProps) {
+export default function MonsterArt({ stage, size = 220, animated = true, className = '', speciesId = 'leaf', locked = false }: MonsterArtProps) {
   const photo = SPECIES_ART[speciesId]?.[stage];
+  const alt = locked ? '아직 만나지 못한 진화 단계' : `진화 ${stage}단계 몬스터`;
 
   if (photo) {
     return (
       <img
         src={photo}
-        alt={`진화 ${stage}단계 몬스터`}
+        alt={alt}
         width={size}
         height={size}
         className={`block mx-auto ${animated ? 'animate-float' : ''} ${className}`}
-        style={{ objectFit: 'contain', objectPosition: 'center center' }}
+        style={{ objectFit: 'contain', objectPosition: 'center center', ...(locked ? LOCKED_STYLE : null) }}
         draggable={false}
       />
     );
   }
 
-  return <ProceduralMonster stage={stage} size={size} animated={animated} className={className} />;
+  return <ProceduralMonster stage={stage} size={size} animated={animated} className={className} style={locked ? LOCKED_STYLE : undefined} />;
 }

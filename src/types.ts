@@ -23,10 +23,29 @@ export interface JournalEntry {
   id: string;
   timestamp: string;
   studentId: string;
+  /** 작성 당시 학생이 키우고 있던 몬스터 종 — 도감에서 몬스터별 감정 기록을 보여줄 때 사용 */
+  speciesId: string;
   category: string;
   word: string;
   thermometer: number;
   journalContent: string;
+}
+
+export interface SituationResponse {
+  prompt: string;
+  picks: string[];
+  expression: string;
+}
+
+export interface CollectEntry {
+  id: string;
+  timestamp: string;
+  studentId: string;
+  speciesId: string;
+  /** 1단계에서 만난 오늘의 어휘(복습용) */
+  vocabWords: string[];
+  /** 2단계 상황별 반응 (선택한 낱말 + 자유 표현) */
+  responses: SituationResponse[];
 }
 
 export interface MoodEntry {
@@ -50,6 +69,8 @@ export interface ShopItem {
   type: 'reward' | 'stone';
   stage?: EvolutionStage;
   icon: string;
+  /** 이미지 URL이 있으면 이모지 아이콘 대신 표시 */
+  imageUrl?: string;
 }
 
 export interface PurchaseRecord {

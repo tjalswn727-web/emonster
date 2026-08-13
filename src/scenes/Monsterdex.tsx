@@ -9,15 +9,21 @@ import type { EvolutionStage } from '../types';
 
 const STAGES: EvolutionStage[] = [0, 1, 2, 3, 4];
 
+function dateStr(iso: string) {
+  return new Date(iso).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+}
+
 export default function Monsterdex() {
   const student = useCurrentStudent();
   const switchSpecies = useStore((s) => s.switchSpecies);
   const setMonsterNickname = useStore((s) => s.setMonsterNickname);
   const energyRules = useStore((s) => s.energyRules);
+  const journalEntries = useStore((s) => s.journalEntries);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (!student) return null;
 
@@ -52,19 +58,31 @@ export default function Monsterdex() {
           const currentStage: EvolutionStage = isActive ? student.stage : (savedStage ?? 0);
           const nickname = student.monsterNicknames?.[species.id];
           const displayName = nickname || species.name;
+          const collected = owned
+            ? journalEntries.filter((e) => e.studentId === student.id && e.speciesId === species.id)
+            : [];
+          const expanded = expandedId === species.id;
 
           return (
             <div
               key={species.id}
               className={`rounded-3xl p-4 bg-white shadow ${isActive ? 'ring-2 ring-brand-500' : ''}`}
             >
-              <div className="flex items-center gap-4">
+              <div
+                role={owned ? 'button' : undefined}
+                tabIndex={owned ? 0 : undefined}
+                className="w-full flex items-center gap-4 text-left cursor-pointer"
+                onClick={() => owned && setExpandedId(expanded ? null : species.id)}
+                onKeyDown={(e) => {
+                  if (owned && (e.key === 'Enter' || e.key === ' ')) setExpandedId(expanded ? null : species.id);
+                }}
+              >
                 <div className="shrink-0">
-                  <MonsterArt stage={owned ? currentStage : 0} size={80} animated={false} speciesId={species.id} className={owned ? '' : 'opacity-40 grayscale'} />
+                  <MonsterArt stage={owned ? currentStage : 0} size={80} animated={false} speciesId={species.id} locked={!owned} />
                 </div>
                 <div className="flex-1 min-w-0">
                   {editingId === species.id ? (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <input
                         value={nameDraft}
                         onChange={(e) => setNameDraft(e.target.value.slice(0, 12))}
@@ -81,24 +99,34 @@ export default function Monsterdex() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="font-extrabold text-brand-900 truncate">{displayName}</p>
+                      <p className="font-extrabold text-brand-900 truncate">{owned ? displayName : '???'}</p>
                       {isActive && <span className="text-[10px] bg-brand-500 text-white px-2 py-0.5 rounded-full font-bold shrink-0">현재 몬스터</span>}
                       {!isActive && owned && <span className="text-[10px] bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-bold shrink-0">보유중</span>}
                       {owned && (
-                        <button onClick={() => handleStartEdit(species.id, nickname || '')} className="text-[11px] text-brand-500 underline underline-offset-2 shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartEdit(species.id, nickname || '');
+                          }}
+                          className="text-[11px] text-brand-500 underline underline-offset-2 shrink-0"
+                        >
                           이름 수정
                         </button>
                       )}
                     </div>
                   )}
                   <p className="text-xs text-brand-600 mt-0.5">
-                    {owned ? `${EVOLUTION_STAGE_LABELS[currentStage]} · ${species.tagline}` : `아직 만나지 않았어요 · ${species.tagline}`}
+                    {owned ? `${EVOLUTION_STAGE_LABELS[currentStage]} · ${species.tagline}` : '아직 만나지 않았어요'}
                   </p>
+                  {owned && <p className="text-[11px] text-brand-400 mt-0.5">{expanded ? '▲ 감정 기록 접기' : `▾ 감정 기록 보기 (${collected.length}개)`}</p>}
                 </div>
 
                 {!isActive && (
                   <button
-                    onClick={() => handleSwitch(species.id, owned)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSwitch(species.id, owned);
+                    }}
                     disabled={student.points < cost}
                     className="shrink-0 px-3 py-2 rounded-xl bg-brand-500 text-white text-xs font-bold shadow disabled:opacity-30 whitespace-nowrap"
                   >
@@ -115,16 +143,33 @@ export default function Monsterdex() {
                       <div
                         key={st}
                         className={`rounded-xl p-1 text-center ${
-                          unlocked ? 'bg-brand-50' : 'bg-gray-50'
+                          unlocked ? 'bg-brand-50' : 'bg-gray-100'
                         } ${st === currentStage ? 'ring-2 ring-brand-400' : ''}`}
                       >
-                        <MonsterArt stage={st} size={44} animated={false} speciesId={species.id} className={unlocked ? '' : 'opacity-25 grayscale'} />
+                        <MonsterArt stage={st} size={44} animated={false} speciesId={species.id} locked={!unlocked} />
                         <p className={`text-[9px] mt-0.5 font-semibold ${unlocked ? 'text-brand-700' : 'text-gray-400'}`}>
                           {unlocked ? EVOLUTION_STAGE_LABELS[st] : '?'}
                         </p>
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {owned && expanded && (
+                <div className="mt-3 bg-brand-50 rounded-2xl p-3 space-y-2">
+                  {collected.length === 0 ? (
+                    <p className="text-xs text-brand-500">아직 {displayName}와(과) 함께 기록한 감정이 없어요. 주식회사 일지를 써보세요!</p>
+                  ) : (
+                    collected.map((entry) => (
+                      <div key={entry.id} className="bg-white rounded-xl p-2.5">
+                        <p className="text-[11px] text-brand-500">
+                          {dateStr(entry.timestamp)} · {entry.category} · <span className="font-bold text-brand-700">“{entry.word}”</span> · 온도 {entry.thermometer}
+                        </p>
+                        <p className="text-xs text-brand-800 mt-1">{entry.journalContent}</p>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>

@@ -65,7 +65,11 @@ export default function Shop() {
             <div className="grid grid-cols-1 gap-3">
               {rewardItems.map((item) => (
                 <div key={item.id} className="bg-white rounded-2xl shadow p-4 flex items-center gap-3">
-                  <span className="text-3xl">{item.icon}</span>
+                  {item.imageUrl ? (
+                    <img src={item.imageUrl} alt={item.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                  ) : (
+                    <span className="text-3xl shrink-0">{item.icon}</span>
+                  )}
                   <div className="flex-1">
                     <p className="font-bold text-brand-900 text-sm">{item.name}</p>
                     <p className="text-xs text-brand-600">{item.description}</p>
@@ -90,7 +94,7 @@ export default function Shop() {
                 const already = stage <= student.stage;
                 return (
                   <div key={item.id} className={`bg-white rounded-2xl shadow p-4 flex items-center gap-3 ${!isNext && !already ? 'opacity-50' : ''}`}>
-                    <MonsterArt stage={stage} size={56} animated={false} speciesId={student.speciesId} />
+                    <MonsterArt stage={stage} size={56} animated={false} speciesId={student.speciesId} locked={!isNext && !already} />
                     <div className="flex-1">
                       <p className="font-bold text-brand-900 text-sm">{item.name}</p>
                       <p className="text-xs text-brand-600">{item.description}</p>

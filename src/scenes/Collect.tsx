@@ -4,7 +4,7 @@ import PageShell from '../components/PageShell';
 import Toast from '../components/Toast';
 import { DAILY_VOCAB_POOL, SITUATION_PROMPTS, SITUATION_RESPONSE_WORDS } from '../data/emotionWords';
 import { useCurrentStudent } from '../store/hooks';
-import { useStore } from '../store/useStore';
+import { hasCollectToday, todayCollectEntry, useStore } from '../store/useStore';
 
 function shuffle<T>(arr: T[]): T[] {
   return [...arr].sort(() => Math.random() - 0.5);
@@ -13,7 +13,9 @@ function shuffle<T>(arr: T[]): T[] {
 export default function Collect() {
   const navigate = useNavigate();
   const student = useCurrentStudent();
+  const collectEntries = useStore((s) => s.collectEntries);
   const addPoints = useStore((s) => s.addPoints);
+  const addCollectEntry = useStore((s) => s.addCollectEntry);
   const energyRules = useStore((s) => s.energyRules);
 
   const words = useMemo(() => shuffle(DAILY_VOCAB_POOL).slice(0, 4), []);
@@ -24,7 +26,8 @@ export default function Collect() {
   const [idx, setIdx] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [currentPicks, setCurrentPicks] = useState<string[]>([]);
-  const [responses, setResponses] = useState<string[][]>([]);
+  const [expression, setExpression] = useState('');
+  const [responses, setResponses] = useState<{ prompt: string; picks: string[]; expression: string }[]>([]);
   const [toast, setToast] = useState<string | null>(null);
 
   const current = words[idx];
@@ -36,6 +39,9 @@ export default function Collect() {
   }, [current, words]);
 
   if (!student) return null;
+
+  const alreadyToday = hasCollectToday(student.id, collectEntries);
+  const todaysEntry = todayCollectEntry(student.id, collectEntries);
 
   const handleSelect = (choice: string) => {
     if (selected) return;
@@ -59,19 +65,81 @@ export default function Collect() {
 
   const handleSubmitResponse = () => {
     if (currentPicks.length === 0) return;
-    setResponses((r) => [...r, currentPicks]);
+    const entry = { prompt: prompts[idx], picks: currentPicks, expression: expression.trim() };
+    const nextResponses = [...responses, entry];
+    setResponses(nextResponses);
     setCurrentPicks([]);
+    setExpression('');
     if (idx + 1 < prompts.length) {
       setIdx((i) => i + 1);
     } else {
+      const res = addCollectEntry({
+        studentId: student.id,
+        vocabWords: words.map((w) => w.word),
+        responses: nextResponses,
+      });
+      if (!res.ok) {
+        setToast(res.error || '저장에 실패했어요.');
+        setPhase('done');
+        return;
+      }
       addPoints(student.id, energyRules.situationResponse);
       setToast(`2단계 완료! 감정 에너지 +${energyRules.situationResponse}pt`);
       setPhase('done');
     }
   };
 
+  if (alreadyToday && todaysEntry) {
+    return (
+      <PageShell title="감정 에너지 수집하기" onBack="/dashboard">
+        <div className="bg-white rounded-2xl shadow p-6 text-center">
+          <p className="text-4xl mb-2">📚✅</p>
+          <p className="font-bold text-brand-900">오늘의 감정 에너지 수집은 이미 완료했어요!</p>
+          <p className="text-sm text-brand-600 mt-1">감정 에너지 수집하기는 하루에 한 번만 할 수 있어요. 내일 또 만나요!</p>
+
+          <div className="mt-4 text-left">
+            <p className="text-sm font-bold text-brand-800 mb-2">📖 오늘 배운 어휘 복습</p>
+            <div className="flex flex-wrap gap-2">
+              {todaysEntry.vocabWords.map((w) => {
+                const meaning = DAILY_VOCAB_POOL.find((v) => v.word === w)?.meaning;
+                return (
+                  <span key={w} className="px-3 py-2 rounded-xl bg-brand-50 text-xs">
+                    <span className="font-bold text-brand-800">{w}</span>
+                    {meaning && <span className="text-brand-500"> · {meaning}</span>}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+
+          {todaysEntry.responses.length > 0 && (
+            <div className="mt-4 text-left bg-brand-50 rounded-xl p-3 space-y-2">
+              <p className="text-sm font-bold text-brand-800">오늘의 상황별 반응</p>
+              {todaysEntry.responses.map((r, i) => (
+                <div key={i} className="text-sm text-brand-800">
+                  <p className="text-xs text-brand-500">{r.prompt}</p>
+                  <p>{r.picks.map((w) => `#${w}`).join('  ')}</p>
+                  {r.expression && <p className="text-xs italic text-brand-600 mt-0.5">“{r.expression}”</p>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button onClick={() => navigate('/dashboard')} className="mt-5 w-full py-3 rounded-xl bg-brand-500 text-white font-bold shadow">
+            로비로 돌아가기
+          </button>
+        </div>
+        {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+      </PageShell>
+    );
+  }
+
   return (
-    <PageShell title="감정 에너지 수집하기" subtitle={phase === 'match' ? '1단계 · 어휘 매칭' : phase === 'situation' ? '2단계 · 상황별 반응' : '완료'} onBack="/dashboard">
+    <PageShell
+      title="감정 에너지 수집하기"
+      subtitle={phase === 'match' ? '1단계 · 어휘 매칭 (하루 1회)' : phase === 'situation' ? '2단계 · 상황별 반응' : '완료'}
+      onBack="/dashboard"
+    >
       {phase === 'match' && current && (
         <div className="bg-white rounded-2xl shadow p-6">
           <p className="text-xs text-brand-600 mb-2">
@@ -130,6 +198,20 @@ export default function Collect() {
               );
             })}
           </div>
+
+          {currentPicks.length > 0 && (
+            <div className="mt-4 animate-pop">
+              <p className="text-xs text-brand-500 mb-2">그 기분을 어떻게 표현하면 좋을까요? (선택)</p>
+              <textarea
+                value={expression}
+                onChange={(e) => setExpression(e.target.value)}
+                rows={2}
+                placeholder="예: 나 지금 걱정돼. 같이 도와줄 수 있어?"
+                className="w-full rounded-xl border border-brand-200 px-3 py-3 focus:outline-none focus:ring-2 focus:ring-brand-400"
+              />
+            </div>
+          )}
+
           <button
             onClick={handleSubmitResponse}
             disabled={currentPicks.length === 0}
@@ -148,11 +230,12 @@ export default function Collect() {
             총 +{energyRules.vocabMatch + energyRules.situationResponse}pt를 획득했어요.
           </p>
           <div className="mt-4 text-left bg-brand-50 rounded-xl p-3 space-y-2">
-            {responses.map((picks, i) => (
-              <p key={i} className="text-sm text-brand-800">
-                {prompts[i] && <span className="block text-xs text-brand-500 mb-0.5">{prompts[i]}</span>}
-                {picks.map((w) => `#${w}`).join('  ')}
-              </p>
+            {responses.map((r, i) => (
+              <div key={i} className="text-sm text-brand-800">
+                <p className="text-xs text-brand-500">{r.prompt}</p>
+                <p>{r.picks.map((w) => `#${w}`).join('  ')}</p>
+                {r.expression && <p className="text-xs italic text-brand-600 mt-0.5">“{r.expression}”</p>}
+              </div>
             ))}
           </div>
           <button onClick={() => navigate('/dashboard')} className="mt-5 w-full py-3 rounded-xl bg-brand-500 text-white font-bold shadow">
