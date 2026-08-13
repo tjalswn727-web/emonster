@@ -32,49 +32,80 @@ export function CountTool({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+// 매듭(70,146)을 고정 기준점으로 두고 몸통만 그 위로 부풀어오르게 해서,
+// 숨을 마시고 내쉴 때 끈이 함께 늘어나 보이지 않고 실제 풍선처럼 자연스럽게 움직인다.
 function Balloon({ scale, duration }: { scale: number; duration: number }) {
   return (
-    <svg
-      viewBox="0 0 120 160"
-      width={200}
-      height={266}
-      style={{
-        transform: `scale(${scale})`,
-        transformOrigin: '60px 70px',
-        transition: `transform ${duration / 1000}s ease-in-out`,
-      }}
-    >
+    <svg viewBox="0 -40 140 240" width={182} height={312}>
       <defs>
-        <radialGradient id="balloonFill" cx="35%" cy="30%" r="75%">
-          <stop offset="0%" stopColor="#bfe6ff" />
-          <stop offset="55%" stopColor="#7ec3f5" />
-          <stop offset="100%" stopColor="#4a90d9" />
+        <radialGradient id="balloonBody" cx="34%" cy="24%" r="85%">
+          <stop offset="0%" stopColor="#eaf7ff" />
+          <stop offset="40%" stopColor="#8fcdf7" />
+          <stop offset="78%" stopColor="#559fe8" />
+          <stop offset="100%" stopColor="#3873c4" />
+        </radialGradient>
+        <radialGradient id="balloonShine" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.85" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="groundShadow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#1d4a27" stopOpacity="0.14" />
+          <stop offset="100%" stopColor="#1d4a27" stopOpacity="0" />
         </radialGradient>
       </defs>
-      {/* 끈 */}
-      <path
-        d="M60,131 C54,138 66,144 60,151 C54,158 66,161 62,166"
-        fill="none"
-        stroke="#a9c6db"
-        strokeWidth={2}
-        strokeLinecap="round"
-      />
-      {/* 매듭 */}
-      <path d="M52,122 L68,122 L60,133 Z" fill="#3f7fbf" />
-      {/* 풍선 몸통 */}
-      <path
-        d="M60,6 C24,6 12,42 12,68 C12,102 34,124 60,124 C86,124 108,102 108,68 C108,42 96,6 60,6 Z"
-        fill="url(#balloonFill)"
-        stroke="#3f7fbf"
-        strokeWidth={2.5}
-      />
-      {/* 하이라이트 */}
-      <ellipse cx="38" cy="38" rx="14" ry="20" fill="#ffffff" opacity={0.55} />
-      {/* 표정 */}
-      <g stroke="#2c5a82" strokeWidth={3} strokeLinecap="round" fill="none">
-        <path d="M42,64 Q46,58 50,64" />
-        <path d="M70,64 Q74,58 78,64" />
-        <path d="M48,80 Q60,90 72,80" />
+
+      {/* 바닥 그림자 (고정) */}
+      <ellipse cx="70" cy="192" rx="32" ry="6" fill="url(#groundShadow)" />
+
+      {/* 끈 (고정 + 은은한 흔들림) */}
+      <g className="animate-sway" style={{ transformOrigin: '70px 146px' }}>
+        <path
+          d="M70,146 C62,154 79,161 71,169 C63,177 79,183 73,190"
+          fill="none"
+          stroke="#a9bfd4"
+          strokeWidth={2.4}
+          strokeLinecap="round"
+        />
+      </g>
+
+      {/* 풍선 몸통 — 매듭을 기준점으로 스케일 */}
+      <g
+        style={{
+          transform: `scale(${scale})`,
+          transformOrigin: '70px 146px',
+          transition: `transform ${duration}s cubic-bezier(0.36, 1.15, 0.4, 1)`,
+        }}
+      >
+        {/* 매듭 */}
+        <path d="M61,136 Q70,150 79,136 Q75,143 70,145 Q65,143 61,136 Z" fill="#3873c4" stroke="#2c5a90" strokeWidth={1} />
+
+        {/* 몸통 */}
+        <path
+          d="M70,8
+             C33,8 14,44 14,79
+             C14,119 39,141 70,141
+             C101,141 126,119 126,79
+             C126,44 107,8 70,8 Z"
+          fill="url(#balloonBody)"
+          stroke="#2c5a90"
+          strokeWidth={2}
+        />
+
+        {/* 부드러운 광택 */}
+        <ellipse cx="46" cy="46" rx="24" ry="32" fill="url(#balloonShine)" />
+        {/* 또렷한 하이라이트 */}
+        <ellipse cx="41" cy="34" rx="7" ry="11" fill="#ffffff" opacity={0.9} transform="rotate(-20 41 34)" />
+
+        {/* 볼터치 */}
+        <ellipse cx="46" cy="90" rx="7" ry="4.5" fill="#ff9eb0" opacity={0.45} />
+        <ellipse cx="94" cy="90" rx="7" ry="4.5" fill="#ff9eb0" opacity={0.45} />
+
+        {/* 표정 */}
+        <g stroke="#2c5a82" strokeWidth={3.2} strokeLinecap="round" fill="none">
+          <path d="M51,76 Q57,67 63,76" />
+          <path d="M77,76 Q83,67 89,76" />
+          <path d="M55,96 Q70,110 85,96" />
+        </g>
       </g>
     </svg>
   );
@@ -103,7 +134,7 @@ export function BreatheTool({ onComplete }: { onComplete: () => void }) {
 
   return (
     <div className="flex flex-col items-center py-6">
-      <div className="h-64 flex items-end justify-center">
+      <div className="h-72 flex items-end justify-center overflow-visible">
         <Balloon scale={done ? 1 : BREATHE_SCALE[phaseIdx]} duration={done ? 0.8 : BREATHE_DURATIONS[phaseIdx] / 1000} />
       </div>
       <p className="mt-2 text-brand-800 font-bold text-2xl">

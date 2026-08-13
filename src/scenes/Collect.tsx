@@ -97,7 +97,7 @@ export default function Collect() {
           <p className="font-bold text-brand-900">오늘의 감정 에너지 수집은 이미 완료했어요!</p>
           <p className="text-sm text-brand-600 mt-1">감정 에너지 수집하기는 하루에 한 번만 할 수 있어요. 내일 또 만나요!</p>
 
-          <div className="mt-4 text-left">
+          <div className="mt-5 text-left">
             <p className="text-sm font-bold text-brand-800 mb-2">📖 오늘 배운 어휘 복습</p>
             <div className="flex flex-wrap gap-2">
               {todaysEntry.vocabWords.map((w) => {
@@ -112,20 +112,7 @@ export default function Collect() {
             </div>
           </div>
 
-          {todaysEntry.responses.length > 0 && (
-            <div className="mt-4 text-left bg-brand-50 rounded-xl p-3 space-y-2">
-              <p className="text-sm font-bold text-brand-800">오늘의 상황별 반응</p>
-              {todaysEntry.responses.map((r, i) => (
-                <div key={i} className="text-sm text-brand-800">
-                  <p className="text-xs text-brand-500">{r.prompt}</p>
-                  <p>{r.picks.map((w) => `#${w}`).join('  ')}</p>
-                  {r.expression && <p className="text-xs italic text-brand-600 mt-0.5">“{r.expression}”</p>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          <button onClick={() => navigate('/dashboard')} className="mt-5 w-full py-3 rounded-xl bg-brand-500 text-white font-bold shadow">
+          <button onClick={() => navigate('/dashboard')} className="mt-6 w-full py-3 rounded-xl bg-brand-500 text-white font-bold shadow">
             로비로 돌아가기
           </button>
         </div>

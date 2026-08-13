@@ -160,7 +160,10 @@ export const useStore = create<StoreState>()(
         const s = get().students[studentId];
         if (!s) return { ok: false, error: '학생 정보를 찾을 수 없어요.' };
         if (s.speciesId === targetSpeciesId) return { ok: false, error: '이미 함께하고 있는 몬스터예요.' };
-        const cost = get().energyRules.eggSwitchCost;
+        // 이미 한 번 잠금을 푼(보유한) 종끼리는 자유롭게 무료로 오갈 수 있고,
+        // 아직 만난 적 없는 새로운 종의 잠금을 처음 풀 때만 에너지가 든다.
+        const alreadyUnlocked = s.monsterProgress?.[targetSpeciesId] !== undefined;
+        const cost = alreadyUnlocked ? 0 : get().energyRules.eggSwitchCost;
         if (s.points < cost) return { ok: false, error: '감정 에너지가 부족해요!' };
         set((state) => {
           const cur = state.students[studentId];

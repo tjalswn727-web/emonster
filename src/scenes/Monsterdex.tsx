@@ -45,11 +45,11 @@ export default function Monsterdex() {
       setToast(res.error || '교체에 실패했어요.');
       return;
     }
-    setToast(alreadyOwned ? '이전에 키우던 몬스터로 돌아왔어요! 🎉' : `⚡${cost}pt로 새 알과 함께하게 됐어요!`);
+    setToast(alreadyOwned ? '이전에 키우던 몬스터로 돌아왔어요! 🎉' : `⚡${cost}pt로 새 알의 잠금을 풀었어요!`);
   };
 
   return (
-    <PageShell title="도감" subtitle={`⚡${student.points}pt 보유 · 다른 알로 교체 시 ⚡${cost}pt`} onBack="/dashboard" wide>
+    <PageShell title="도감" subtitle={`⚡${student.points}pt 보유 · 새 알의 잠금을 풀 때만 ⚡${cost}pt · 이미 푼 알끼리는 무료`} onBack="/dashboard" wide>
       <div className="space-y-4">
         {MONSTER_SPECIES.map((species) => {
           const isActive = species.id === student.speciesId;
@@ -127,10 +127,10 @@ export default function Monsterdex() {
                       e.stopPropagation();
                       handleSwitch(species.id, owned);
                     }}
-                    disabled={student.points < cost}
+                    disabled={!owned && student.points < cost}
                     className="shrink-0 px-3 py-2 rounded-xl bg-brand-500 text-white text-xs font-bold shadow disabled:opacity-30 whitespace-nowrap"
                   >
-                    ⚡{cost} {owned ? '돌아가기' : '교체하기'}
+                    {owned ? '무료로 돌아가기' : `⚡${cost} 교체하기`}
                   </button>
                 )}
               </div>
