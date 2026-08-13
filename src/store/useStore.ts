@@ -10,13 +10,15 @@ export interface EnergyRules {
   situationResponse: number;
   journal: number;
   regulationTool: number;
+  eggSwitchCost: number;
 }
 
-export const ENERGY_RULE_LABELS: Record<keyof EnergyRules, { title: string; desc: string }> = {
-  vocabMatch: { title: '어휘 매칭 완료', desc: '감정 에너지 수집하기 · 1단계 어휘 매칭' },
-  situationResponse: { title: '상황별 반응 완료', desc: '감정 에너지 수집하기 · 2단계 상황별 반응' },
-  journal: { title: '주식회사 일지 작성', desc: '하루 1회 작성 시 지급' },
-  regulationTool: { title: '감정 다스리기 도구 사용', desc: '10초 세기 / 심호흡 / 긍정 카드, 1시간 쿨다운' },
+export const ENERGY_RULE_LABELS: Record<keyof EnergyRules, { title: string; desc: string; kind: 'reward' | 'cost' }> = {
+  vocabMatch: { title: '어휘 매칭 완료', desc: '감정 에너지 수집하기 · 1단계 어휘 매칭', kind: 'reward' },
+  situationResponse: { title: '상황별 반응 완료', desc: '감정 에너지 수집하기 · 2단계 상황별 반응', kind: 'reward' },
+  journal: { title: '주식회사 일지 작성', desc: '하루 1회 작성 시 지급', kind: 'reward' },
+  regulationTool: { title: '감정 다스리기 도구 사용', desc: '10초 세기 / 심호흡 / 긍정 카드, 1시간 쿨다운', kind: 'reward' },
+  eggSwitchCost: { title: '도감 · 다른 알로 교체', desc: '다른 몬스터 알로 바꿀 때 차감되는 비용', kind: 'cost' },
 };
 
 const DEFAULT_ENERGY_RULES: EnergyRules = {
@@ -24,6 +26,7 @@ const DEFAULT_ENERGY_RULES: EnergyRules = {
   situationResponse: 10,
   journal: 5,
   regulationTool: 5,
+  eggSwitchCost: 20,
 };
 
 interface StoreState {
@@ -45,6 +48,8 @@ interface StoreState {
   addPoints: (studentId: string, amount: number) => void;
   spendPoints: (studentId: string, amount: number) => boolean;
   evolveStudent: (studentId: string, stage: EvolutionStage) => void;
+  switchSpecies: (studentId: string, targetSpeciesId: string) => { ok: boolean; error?: string };
+  setMonsterNickname: (studentId: string, speciesId: string, nickname: string) => void;
 
   addMoodEntry: (entry: Omit<MoodEntry, 'id' | 'timestamp'>) => string;
   resolveSOS: (entryId: string) => void;
@@ -90,6 +95,7 @@ export const useStore = create<StoreState>()(
           stage: 0,
           points: 0,
           createdAt: new Date().toISOString(),
+          monsterProgress: { [speciesId]: 0 },
         };
         set({ students: { ...students, [id]: student }, currentStudentId: id });
         return { ok: true, id };
@@ -134,7 +140,51 @@ export const useStore = create<StoreState>()(
         set((state) => {
           const s = state.students[studentId];
           if (!s) return state;
-          return { students: { ...state.students, [studentId]: { ...s, stage } } };
+          return {
+            students: {
+              ...state.students,
+              [studentId]: { ...s, stage, monsterProgress: { ...s.monsterProgress, [s.speciesId]: stage } },
+            },
+          };
+        });
+      },
+
+      switchSpecies: (studentId, targetSpeciesId) => {
+        const s = get().students[studentId];
+        if (!s) return { ok: false, error: '학생 정보를 찾을 수 없어요.' };
+        if (s.speciesId === targetSpeciesId) return { ok: false, error: '이미 함께하고 있는 몬스터예요.' };
+        const cost = get().energyRules.eggSwitchCost;
+        if (s.points < cost) return { ok: false, error: '감정 에너지가 부족해요!' };
+        set((state) => {
+          const cur = state.students[studentId];
+          if (!cur) return state;
+          const savedProgress = { ...cur.monsterProgress, [cur.speciesId]: cur.stage };
+          const nextStage = savedProgress[targetSpeciesId] ?? 0;
+          return {
+            students: {
+              ...state.students,
+              [studentId]: {
+                ...cur,
+                points: cur.points - cost,
+                speciesId: targetSpeciesId,
+                stage: nextStage,
+                monsterProgress: { ...savedProgress, [targetSpeciesId]: nextStage },
+              },
+            },
+          };
+        });
+        return { ok: true };
+      },
+
+      setMonsterNickname: (studentId, speciesId, nickname) => {
+        set((state) => {
+          const s = state.students[studentId];
+          if (!s) return state;
+          const nicknames = { ...s.monsterNicknames };
+          const trimmed = nickname.trim();
+          if (trimmed) nicknames[speciesId] = trimmed;
+          else delete nicknames[speciesId];
+          return { students: { ...state.students, [studentId]: { ...s, monsterNicknames: nicknames } } };
         });
       },
 

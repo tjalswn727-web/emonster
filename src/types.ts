@@ -70,4 +70,8 @@ export interface Student {
   points: number;
   createdAt: string;
   lastToolUse?: Record<string, string>;
+  /** 종별로 이전에 키우던 진화 단계를 저장 — 다른 알로 교체해도 언제든 되돌아갈 수 있게 함 */
+  monsterProgress?: Partial<Record<string, EvolutionStage>>;
+  /** 종별 커스텀 별명 (도감에서 지정) */
+  monsterNicknames?: Partial<Record<string, string>>;
 }

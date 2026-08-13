@@ -12,6 +12,7 @@ export default function Dashboard() {
   if (!student) return null;
   const species = MONSTER_SPECIES.find((s) => s.id === student.speciesId);
   const multiplier = EVOLUTION_MULTIPLIER[student.stage];
+  const nickname = student.monsterNicknames?.[student.speciesId];
 
   const menu = [
     { to: '/collect', emoji: '📚', title: '감정 에너지 수집하기', desc: '오늘의 감정 어휘를 배워요', color: 'bg-brand-100' },
@@ -35,7 +36,7 @@ export default function Dashboard() {
 
         <div className="bg-white rounded-3xl shadow p-6 text-center mb-5">
           <p className="text-sm font-bold text-brand-700 mb-1">
-            {species?.name} · {EVOLUTION_STAGE_LABELS[student.stage]}
+            {nickname || species?.name} · {EVOLUTION_STAGE_LABELS[student.stage]}
           </p>
           <MonsterArt stage={student.stage} size={190} speciesId={student.speciesId} />
           <div className="mt-3 flex items-center justify-center gap-4">
@@ -65,6 +66,13 @@ export default function Dashboard() {
             </button>
           ))}
         </div>
+
+        <button
+          onClick={() => navigate('/dex')}
+          className="mt-3 w-full py-3 rounded-2xl bg-white border-2 border-brand-300 text-brand-800 font-bold shadow-sm active:scale-[0.98] transition flex items-center justify-center gap-2"
+        >
+          📖 도감 보기
+        </button>
       </div>
     </div>
   );

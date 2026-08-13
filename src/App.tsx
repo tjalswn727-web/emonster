@@ -9,6 +9,7 @@ import Journal from './scenes/Journal';
 import Regulate from './scenes/Regulate';
 import Shop from './scenes/Shop';
 import Admin from './scenes/Admin';
+import Monsterdex from './scenes/Monsterdex';
 
 function RequireStudent({ children }: { children: React.ReactNode }) {
   const currentStudentId = useStore((s) => s.currentStudentId);
@@ -65,6 +66,14 @@ export default function App() {
         element={
           <RequireStudent>
             <Shop />
+          </RequireStudent>
+        }
+      />
+      <Route
+        path="/dex"
+        element={
+          <RequireStudent>
+            <Monsterdex />
           </RequireStudent>
         }
       />

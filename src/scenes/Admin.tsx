@@ -227,7 +227,7 @@ export default function Admin() {
       {tab === 'energy' && (
         <div className="space-y-4">
           <p className="text-sm text-brand-600 bg-white rounded-xl p-4 shadow-sm">
-            활동별로 지급되는 감정 에너지 양을 조정할 수 있어요. 저장 즉시 새로 활동하는 학생부터 적용돼요.
+            활동별로 지급/차감되는 감정 에너지 양을 조정할 수 있어요. 저장 즉시 새로 활동하는 학생부터 적용돼요.
           </p>
           <div className="bg-white rounded-2xl shadow divide-y divide-brand-50">
             {(Object.keys(ENERGY_RULE_LABELS) as (keyof EnergyRules)[]).map((key) => {
@@ -236,7 +236,16 @@ export default function Admin() {
               return (
                 <div key={key} className="p-4 flex items-center gap-3">
                   <div className="flex-1">
-                    <p className="font-bold text-brand-900 text-sm">{label.title}</p>
+                    <p className="font-bold text-brand-900 text-sm flex items-center gap-1.5">
+                      {label.title}
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                          label.kind === 'cost' ? 'bg-zone-red-bg text-zone-red' : 'bg-brand-100 text-brand-700'
+                        }`}
+                      >
+                        {label.kind === 'cost' ? '차감' : '지급'}
+                      </span>
+                    </p>
                     <p className="text-xs text-brand-600">{label.desc}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
