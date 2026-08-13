@@ -73,7 +73,7 @@ export const ZONES: Record<ZoneColor, ZoneConfig> = {
 
 export const REGULATION_TOOLS = [
   { id: 'count10', name: '10초 세기', icon: '🔢', description: '몬스터와 함께 10부터 1까지 천천히 세어봐요' },
-  { id: 'breathe', name: '심호흡하기', icon: '🌬️', description: '풍선을 따라 숨을 마시고 내쉬어요' },
+  { id: 'breathe', name: '심호흡하기', icon: '🌬️', description: '내 몬스터를 따라 숨을 마시고 내쉬어요' },
   { id: 'cards', name: '긍정 카드 뒤집기', icon: '🃏', description: '카드를 뒤집어 응원 메시지를 받아요' },
 ] as const;
 

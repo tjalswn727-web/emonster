@@ -131,7 +131,7 @@ export default function Regulate() {
       {phase === 'tool-active' && activeTool && (
         <div className="rounded-3xl p-6 bg-gradient-to-b from-brand-50 to-white shadow-inner min-h-[420px] flex flex-col items-center justify-center">
           {activeTool === 'count10' && <CountTool onComplete={handleToolComplete} />}
-          {activeTool === 'breathe' && <BreatheTool onComplete={handleToolComplete} />}
+          {activeTool === 'breathe' && <BreatheTool onComplete={handleToolComplete} speciesId={student.speciesId} stage={student.stage} />}
           {activeTool === 'cards' && <CardsTool onComplete={handleToolComplete} />}
         </div>
       )}
