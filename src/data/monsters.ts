@@ -52,6 +52,14 @@ export const MONSTER_SPECIES: MonsterSpecies[] = [
     primaryColor: '#f4a6c6',
     stageNames: ['하트몬스터 알', '하트몬스터 유아', '하트몬스터 어린이', '하트몬스터 청소년', '하트몬스터 성인'],
   },
+  {
+    id: 'weather',
+    name: '날씨몬스터',
+    tagline: '변화무쌍한 날씨처럼 감정이 바뀔 수 있다는 친구',
+    available: true,
+    primaryColor: '#b3a3e0',
+    stageNames: ['날씨몬스터 알', '날씨몬스터 유아', '날씨몬스터 어린이', '날씨몬스터 청소년', '날씨몬스터 성인'],
+  },
 ];
 
 export const SHOP_REWARD_ITEMS: ShopItem[] = [

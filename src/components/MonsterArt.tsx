@@ -25,6 +25,11 @@ import heartStage1 from '../assets/monsters/heart/stage-1-baby.png';
 import heartStage2 from '../assets/monsters/heart/stage-2-junior.png';
 import heartStage3 from '../assets/monsters/heart/stage-3-teen.png';
 import heartStage4 from '../assets/monsters/heart/stage-4-final.png';
+import weatherStage0 from '../assets/monsters/weather/stage-0-egg.png';
+import weatherStage1 from '../assets/monsters/weather/stage-1-baby.png';
+import weatherStage2 from '../assets/monsters/weather/stage-2-junior.png';
+import weatherStage3 from '../assets/monsters/weather/stage-3-teen.png';
+import weatherStage4 from '../assets/monsters/weather/stage-4-final.png';
 
 interface MonsterArtProps {
   stage: EvolutionStage;
@@ -74,6 +79,13 @@ const SPECIES_ART: Partial<Record<string, Record<EvolutionStage, string>>> = {
     2: heartStage2,
     3: heartStage3,
     4: heartStage4,
+  },
+  weather: {
+    0: weatherStage0,
+    1: weatherStage1,
+    2: weatherStage2,
+    3: weatherStage3,
+    4: weatherStage4,
   },
 };
 
