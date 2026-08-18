@@ -20,6 +20,11 @@ import starStage1 from '../assets/monsters/star/stage-1-baby.png';
 import starStage2 from '../assets/monsters/star/stage-2-junior.png';
 import starStage3 from '../assets/monsters/star/stage-3-teen.png';
 import starStage4 from '../assets/monsters/star/stage-4-final.png';
+import heartStage0 from '../assets/monsters/heart/stage-0-egg.png';
+import heartStage1 from '../assets/monsters/heart/stage-1-baby.png';
+import heartStage2 from '../assets/monsters/heart/stage-2-junior.png';
+import heartStage3 from '../assets/monsters/heart/stage-3-teen.png';
+import heartStage4 from '../assets/monsters/heart/stage-4-final.png';
 
 interface MonsterArtProps {
   stage: EvolutionStage;
@@ -62,6 +67,13 @@ const SPECIES_ART: Partial<Record<string, Record<EvolutionStage, string>>> = {
     2: starStage2,
     3: starStage3,
     4: starStage4,
+  },
+  heart: {
+    0: heartStage0,
+    1: heartStage1,
+    2: heartStage2,
+    3: heartStage3,
+    4: heartStage4,
   },
 };
 

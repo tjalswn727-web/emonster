@@ -44,6 +44,14 @@ export const MONSTER_SPECIES: MonsterSpecies[] = [
     primaryColor: '#5b5fd6',
     stageNames: ['별빛몬스터 알', '별빛몬스터 유아', '별빛몬스터 어린이', '별빛몬스터 청소년', '별빛몬스터 성인'],
   },
+  {
+    id: 'heart',
+    name: '하트몬스터',
+    tagline: '포근포근 사랑 가득한 친구',
+    available: true,
+    primaryColor: '#f4a6c6',
+    stageNames: ['하트몬스터 알', '하트몬스터 유아', '하트몬스터 어린이', '하트몬스터 청소년', '하트몬스터 성인'],
+  },
 ];
 
 export const SHOP_REWARD_ITEMS: ShopItem[] = [
