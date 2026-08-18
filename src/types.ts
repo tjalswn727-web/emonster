@@ -82,6 +82,17 @@ export interface PurchaseRecord {
   cost: number;
 }
 
+/** 감정 에너지 적립/사용 내역 원장 — 포인트가 오갈 때마다 한 줄씩 남긴다 */
+export interface EnergyTransaction {
+  id: string;
+  timestamp: string;
+  studentId: string;
+  type: 'earn' | 'spend';
+  amount: number;
+  reason: string;
+  balanceAfter: number;
+}
+
 export interface Student {
   id: string;
   name: string;

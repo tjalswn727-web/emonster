@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageShell from '../components/PageShell';
 import { EVOLUTION_STAGE_LABELS, MONSTER_SPECIES } from '../data/monsters';
-import { ZONES } from '../data/zones';
+import { ZONE_SCORE, ZONES } from '../data/zones';
 import { SHEETS_APPS_SCRIPT_CODE } from '../lib/sheetsSync';
 import { ENERGY_RULE_LABELS, useStore, zoneRedCountToday, type EnergyRules } from '../store/useStore';
 import type { ShopItem } from '../types';
@@ -21,11 +21,70 @@ function timeStr(iso: string) {
   return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 }
 
+function CsvBlock({ label, csv, onCopy }: { label: string; csv: string; onCopy: (text: string) => void }) {
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs font-bold text-brand-700">{label}</p>
+        <button onClick={() => onCopy(csv)} className="text-xs px-2 py-1 rounded-lg bg-brand-100 text-brand-700 font-bold">
+          복사하기
+        </button>
+      </div>
+      <textarea readOnly value={csv} rows={6} className="w-full rounded-lg border border-brand-200 p-2 text-[11px] font-mono" onFocus={(e) => e.target.select()} />
+    </div>
+  );
+}
+
+function dateKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function monthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// ISO 8601 주차 (월요일 시작, 그 주의 목요일이 속한 연도 기준)
+function weekKey(d: Date) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((date.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+/** entries를 (기간, 학생) 단위로 묶어 평균값 CSV를 만든다 */
+function buildAverageCsv<T>(
+  entries: T[],
+  periodOf: (e: T) => string,
+  studentIdOf: (e: T) => string,
+  valueOf: (e: T) => number,
+  studentName: (id: string) => string,
+  periodLabel: string,
+  valueLabel: string
+): string {
+  const map = new Map<string, { sum: number; count: number; period: string; studentId: string }>();
+  for (const e of entries) {
+    const period = periodOf(e);
+    const studentId = studentIdOf(e);
+    const key = `${period}|${studentId}`;
+    const cur = map.get(key) || { sum: 0, count: 0, period, studentId };
+    cur.sum += valueOf(e);
+    cur.count += 1;
+    map.set(key, cur);
+  }
+  const rows = Array.from(map.values())
+    .sort((a, b) => b.period.localeCompare(a.period) || studentName(a.studentId).localeCompare(studentName(b.studentId)))
+    .map((v) => [v.period, studentName(v.studentId), Number((v.sum / v.count).toFixed(2)), v.count]);
+  return toCsv([periodLabel, 'Student_Name', valueLabel, 'Entry_Count'], rows);
+}
+
 export default function Admin() {
   const navigate = useNavigate();
   const students = useStore((s) => s.students);
   const moodEntries = useStore((s) => s.moodEntries);
   const journalEntries = useStore((s) => s.journalEntries);
+  const energyTransactions = useStore((s) => s.energyTransactions);
   const shopItems = useStore((s) => s.shopItems);
   const teacherLogout = useStore((s) => s.teacherLogout);
   const teacherAdjustPoints = useStore((s) => s.teacherAdjustPoints);
@@ -43,10 +102,16 @@ export default function Admin() {
   const [ruleDrafts, setRuleDrafts] = useState<Partial<Record<keyof EnergyRules, number>>>({});
   const [webhookDraft, setWebhookDraft] = useState(sheetsWebhookUrl ?? '');
   const [showSetupGuide, setShowSetupGuide] = useState(false);
-  const [journalCsv, setJournalCsv] = useState<string | null>(null);
   const [moodCsv, setMoodCsv] = useState<string | null>(null);
+  const [moodAvgCsv, setMoodAvgCsv] = useState<string | null>(null);
+  const [journalCsv, setJournalCsv] = useState<string | null>(null);
+  const [journalWeeklyCsv, setJournalWeeklyCsv] = useState<string | null>(null);
+  const [journalMonthlyCsv, setJournalMonthlyCsv] = useState<string | null>(null);
+  const [energyCsv, setEnergyCsv] = useState<string | null>(null);
+  const [timelineFilter, setTimelineFilter] = useState<Set<string>>(new Set());
 
   const studentList = Object.values(students);
+  const studentName = (id: string) => students[id]?.name ?? '알 수 없음';
 
   const isCrisis = (id: string) => {
     const redCount = zoneRedCountToday(id, moodEntries);
@@ -56,7 +121,20 @@ export default function Admin() {
 
   const sortedStudents = [...studentList].sort((a, b) => Number(isCrisis(b.id)) - Number(isCrisis(a.id)));
 
-  const timeline = useMemo(() => [...moodEntries].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp)).slice(0, 30), [moodEntries]);
+  const toggleTimelineFilter = (id: string) => {
+    setTimelineFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const timeline = useMemo(() => {
+    const sorted = [...moodEntries].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp));
+    const filtered = timelineFilter.size > 0 ? sorted.filter((e) => timelineFilter.has(e.studentId)) : sorted;
+    return filtered.slice(0, 30);
+  }, [moodEntries, timelineFilter]);
 
   const handleLogout = () => {
     teacherLogout();
@@ -88,28 +166,69 @@ export default function Admin() {
     }
   };
 
-  const buildJournalCsv = () => {
-    const rows = journalEntries.map((e) => [
-      e.timestamp,
-      students[e.studentId]?.name ?? '알 수 없음',
-      e.category,
-      e.word,
-      e.thermometer,
-      e.journalContent,
-    ]);
-    setJournalCsv(toCsv(['Timestamp', 'Student_Name', 'Category', 'Word', 'Thermometer', 'Journal_Content'], rows));
-  };
-
   const buildMoodCsv = () => {
     const rows = moodEntries.map((e) => [
       e.timestamp,
-      students[e.studentId]?.name ?? '알 수 없음',
+      studentName(e.studentId),
       e.colorZone,
+      ZONE_SCORE[e.colorZone],
       e.emoji,
       e.usedTool ?? '',
       e.helpRequested ? 'Y' : 'N',
     ]);
-    setMoodCsv(toCsv(['Timestamp', 'Student_Name', 'Color_Zone', 'Emoji', 'Used_Tool', 'Help_Requested'], rows));
+    setMoodCsv(toCsv(['Timestamp', 'Student_Name', 'Color_Zone', 'Zone_Score', 'Emoji', 'Used_Tool', 'Help_Requested'], rows));
+  };
+
+  const buildMoodAvgCsv = () => {
+    setMoodAvgCsv(
+      buildAverageCsv(
+        moodEntries,
+        (e) => dateKey(new Date(e.timestamp)),
+        (e) => e.studentId,
+        (e) => ZONE_SCORE[e.colorZone],
+        studentName,
+        'Date',
+        'Avg_Zone_Score'
+      )
+    );
+  };
+
+  const buildJournalCsv = () => {
+    const rows = journalEntries.map((e) => [e.timestamp, studentName(e.studentId), e.category, e.word, e.thermometer, e.journalContent]);
+    setJournalCsv(toCsv(['Timestamp', 'Student_Name', 'Category', 'Word', 'Thermometer', 'Journal_Content'], rows));
+  };
+
+  const buildJournalWeeklyCsv = () => {
+    setJournalWeeklyCsv(
+      buildAverageCsv(
+        journalEntries,
+        (e) => weekKey(new Date(e.timestamp)),
+        (e) => e.studentId,
+        (e) => e.thermometer,
+        studentName,
+        'Week',
+        'Avg_Thermometer'
+      )
+    );
+  };
+
+  const buildJournalMonthlyCsv = () => {
+    setJournalMonthlyCsv(
+      buildAverageCsv(
+        journalEntries,
+        (e) => monthKey(new Date(e.timestamp)),
+        (e) => e.studentId,
+        (e) => e.thermometer,
+        studentName,
+        'Month',
+        'Avg_Thermometer'
+      )
+    );
+  };
+
+  const buildEnergyCsv = () => {
+    const rows = energyTransactions.map((t) => [t.timestamp, studentName(t.studentId), t.type === 'earn' ? '적립' : '사용', t.amount, t.reason, t.balanceAfter]);
+    setEnergyCsv(toCsv(['Timestamp', 'Student_Name', 'Type', 'Amount', 'Reason', 'Balance_After'], rows));
   };
 
   return (
@@ -163,13 +282,13 @@ export default function Admin() {
                           className="w-16 rounded-lg border border-brand-200 px-2 py-1 text-sm"
                         />
                         <button
-                          onClick={() => teacherAdjustPoints(st.id, amounts[st.id] ?? 5, 'manual')}
+                          onClick={() => teacherAdjustPoints(st.id, amounts[st.id] ?? 5, '교사 수동 지급')}
                           className="px-2 py-1 rounded-lg bg-brand-500 text-white text-sm font-bold"
                         >
                           지급
                         </button>
                         <button
-                          onClick={() => teacherAdjustPoints(st.id, -(amounts[st.id] ?? 5), 'manual')}
+                          onClick={() => teacherAdjustPoints(st.id, -(amounts[st.id] ?? 5), '교사 수동 차감')}
                           className="px-2 py-1 rounded-lg bg-white border border-brand-300 text-brand-700 text-sm font-bold"
                         >
                           차감
@@ -194,9 +313,37 @@ export default function Admin() {
           </div>
 
           <div>
-            <h2 className="font-bold text-brand-900 mb-2">오늘의 감정 체크인 타임라인</h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="font-bold text-brand-900">오늘의 감정 체크인 타임라인</h2>
+              {timelineFilter.size > 0 && (
+                <button onClick={() => setTimelineFilter(new Set())} className="text-xs text-brand-600 underline underline-offset-2">
+                  필터 초기화 ({timelineFilter.size}명 선택됨)
+                </button>
+              )}
+            </div>
+            {studentList.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {studentList.map((st) => {
+                  const active = timelineFilter.has(st.id);
+                  return (
+                    <button
+                      key={st.id}
+                      onClick={() => toggleTimelineFilter(st.id)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-bold border-2 transition ${
+                        active ? 'border-brand-500 bg-brand-500 text-white' : 'border-brand-200 bg-white text-brand-700'
+                      }`}
+                    >
+                      {active && '✓ '}
+                      {st.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div className="bg-white rounded-2xl shadow divide-y divide-brand-50">
-              {timeline.length === 0 && <p className="text-sm text-brand-600 p-4">아직 체크인 기록이 없어요.</p>}
+              {timeline.length === 0 && (
+                <p className="text-sm text-brand-600 p-4">{timelineFilter.size > 0 ? '선택한 학생의 체크인 기록이 없어요.' : '아직 체크인 기록이 없어요.'}</p>
+              )}
               {timeline.map((e) => {
                 const st = students[e.studentId];
                 const zone = ZONES[e.colorZone];
@@ -344,7 +491,7 @@ export default function Admin() {
           <div className="bg-white rounded-2xl shadow p-4">
             <h2 className="font-bold text-brand-900 mb-1">구글 스프레드시트 자동 연동</h2>
             <p className="text-sm text-brand-600 mb-3">
-              구글 시트를 "웹 앱"으로 연결해두면, 학생이 일지를 쓰거나 감정 체크인을 할 때마다 시트에 자동으로 한 줄씩 기록돼요.
+              구글 시트를 "웹 앱"으로 연결해두면, 학생이 체크인·일지를 쓰거나 에너지가 오갈 때마다 시트 3개(오늘의 감정 체크인 / 학생들의 감정일지 / 학생들 에너지 적립 및 사용)에 자동으로 한 줄씩 기록돼요. 시트 탭은 처음 데이터가 들어올 때 자동으로 만들어져요.
             </p>
 
             {sheetsWebhookUrl && (
@@ -398,41 +545,52 @@ export default function Admin() {
           </div>
 
           <div className="bg-white rounded-2xl shadow p-4">
-            <h2 className="font-bold text-brand-900 mb-1">지금 바로 보기 (CSV)</h2>
-            <p className="text-sm text-brand-600 mb-3">시트 연동 없이도, 지금까지 쌓인 기록을 CSV 텍스트로 바로 뽑아서 복사해 붙여넣을 수 있어요.</p>
-
+            <h2 className="font-bold text-brand-900 mb-1">1. 오늘의 감정 체크인</h2>
+            <p className="text-sm text-brand-600 mb-3">
+              학생들의 색깔 구역 체크인 기록이에요. 구역은 초록 4점 · 노랑 3점 · 파랑 2점 · 빨강 1점으로 점수화해서 하루 평균을 함께 볼 수 있어요.
+            </p>
             <div className="flex gap-2 flex-wrap">
-              <button onClick={buildJournalCsv} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold">
-                📓 감정 일지 CSV 만들기 ({journalEntries.length}건)
-              </button>
               <button onClick={buildMoodCsv} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold">
-                🧭 실시간 기분 CSV 만들기 ({moodEntries.length}건)
+                🧭 체크인 원본 CSV ({moodEntries.length}건)
+              </button>
+              <button onClick={buildMoodAvgCsv} className="px-3 py-2 rounded-lg bg-brand-700 text-white text-sm font-bold">
+                📊 하루 감정 평균 CSV (일별 · 학생별)
               </button>
             </div>
+            {moodCsv && <CsvBlock label="체크인 원본 CSV" csv={moodCsv} onCopy={handleCopy} />}
+            {moodAvgCsv && <CsvBlock label="하루 감정 평균 CSV" csv={moodAvgCsv} onCopy={handleCopy} />}
+          </div>
 
-            {journalCsv && (
-              <div className="mt-3">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-xs font-bold text-brand-700">감정 일지 CSV</p>
-                  <button onClick={() => handleCopy(journalCsv)} className="text-xs px-2 py-1 rounded-lg bg-brand-100 text-brand-700 font-bold">
-                    복사하기
-                  </button>
-                </div>
-                <textarea readOnly value={journalCsv} rows={6} className="w-full rounded-lg border border-brand-200 p-2 text-[11px] font-mono" onFocus={(e) => e.target.select()} />
-              </div>
-            )}
+          <div className="bg-white rounded-2xl shadow p-4">
+            <h2 className="font-bold text-brand-900 mb-1">2. 학생들의 감정일지</h2>
+            <p className="text-sm text-brand-600 mb-3">주식회사 일지(감정 온도계 1~10) 기록과, 주별 · 월별 평균 온도를 뽑을 수 있어요.</p>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={buildJournalCsv} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold">
+                📓 감정일지 원본 CSV ({journalEntries.length}건)
+              </button>
+              <button onClick={buildJournalWeeklyCsv} className="px-3 py-2 rounded-lg bg-brand-700 text-white text-sm font-bold">
+                📊 주별 평균 온도 CSV
+              </button>
+              <button onClick={buildJournalMonthlyCsv} className="px-3 py-2 rounded-lg bg-brand-700 text-white text-sm font-bold">
+                📊 월별 평균 온도 CSV
+              </button>
+            </div>
+            {journalCsv && <CsvBlock label="감정일지 원본 CSV" csv={journalCsv} onCopy={handleCopy} />}
+            {journalWeeklyCsv && <CsvBlock label="주별 평균 온도 CSV" csv={journalWeeklyCsv} onCopy={handleCopy} />}
+            {journalMonthlyCsv && <CsvBlock label="월별 평균 온도 CSV" csv={journalMonthlyCsv} onCopy={handleCopy} />}
+          </div>
 
-            {moodCsv && (
-              <div className="mt-3">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-xs font-bold text-brand-700">실시간 기분 CSV</p>
-                  <button onClick={() => handleCopy(moodCsv)} className="text-xs px-2 py-1 rounded-lg bg-brand-100 text-brand-700 font-bold">
-                    복사하기
-                  </button>
-                </div>
-                <textarea readOnly value={moodCsv} rows={6} className="w-full rounded-lg border border-brand-200 p-2 text-[11px] font-mono" onFocus={(e) => e.target.select()} />
-              </div>
-            )}
+          <div className="bg-white rounded-2xl shadow p-4">
+            <h2 className="font-bold text-brand-900 mb-1">3. 학생들 에너지 적립 및 사용</h2>
+            <p className="text-sm text-brand-600 mb-3">
+              감정 에너지가 지급되거나 차감될 때마다(수집하기 · 일지 · 도구 사용 · 매점 구매 · 알 교체 · 교사 수동 조정) 사유와 함께 한 줄씩 기록돼요.
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={buildEnergyCsv} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold">
+                ⚡ 에너지 내역 CSV ({energyTransactions.length}건)
+              </button>
+            </div>
+            {energyCsv && <CsvBlock label="에너지 적립·사용 내역 CSV" csv={energyCsv} onCopy={handleCopy} />}
           </div>
         </div>
       )}

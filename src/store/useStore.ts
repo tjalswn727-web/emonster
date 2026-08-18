@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { CollectEntry, JournalEntry, MoodEntry, PurchaseRecord, ShopItem, Student, ZoneColor, EvolutionStage } from '../types';
+import type { CollectEntry, EnergyTransaction, JournalEntry, MoodEntry, PurchaseRecord, ShopItem, Student, ZoneColor, EvolutionStage } from '../types';
 import { EVOLUTION_STONES, SHOP_REWARD_ITEMS } from '../data/monsters';
+import { REGULATION_TOOLS, ZONE_SCORE } from '../data/zones';
 import { pushRowToSheet } from '../lib/sheetsSync';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -40,6 +41,7 @@ interface StoreState {
   shopItems: ShopItem[];
   energyRules: EnergyRules;
   collectEntries: CollectEntry[];
+  energyTransactions: EnergyTransaction[];
   sheetsWebhookUrl: string | null;
 
   registerStudent: (name: string, password: string, speciesId: string) => { ok: boolean; error?: string; id?: string };
@@ -48,8 +50,8 @@ interface StoreState {
   teacherLogin: (password: string) => boolean;
   teacherLogout: () => void;
 
-  addPoints: (studentId: string, amount: number) => void;
-  spendPoints: (studentId: string, amount: number) => boolean;
+  addPoints: (studentId: string, amount: number, reason?: string) => void;
+  spendPoints: (studentId: string, amount: number, reason?: string) => boolean;
   evolveStudent: (studentId: string, stage: EvolutionStage) => void;
   switchSpecies: (studentId: string, targetSpeciesId: string) => { ok: boolean; error?: string };
   setMonsterNickname: (studentId: string, speciesId: string, nickname: string) => void;
@@ -76,7 +78,27 @@ interface StoreState {
 
 export const useStore = create<StoreState>()(
   persist(
-    (set, get) => ({
+    (set, get) => {
+      // 포인트가 오갈 때마다 원장에 한 줄 남기고, 시트가 연동돼 있으면 실시간으로도 보낸다.
+      const logTransaction = (studentId: string, type: 'earn' | 'spend', amount: number, reason: string, balanceAfter: number) => {
+        if (amount <= 0) return;
+        const tx: EnergyTransaction = { id: uid(), timestamp: new Date().toISOString(), studentId, type, amount, reason, balanceAfter };
+        set((state) => ({ energyTransactions: [tx, ...state.energyTransactions] }));
+        const webhookUrl = get().sheetsWebhookUrl;
+        if (webhookUrl) {
+          const student = get().students[studentId];
+          pushRowToSheet(webhookUrl, '학생들 에너지 적립 및 사용', {
+            Timestamp: tx.timestamp,
+            Student_Name: student?.name ?? '',
+            Type: type === 'earn' ? '적립' : '사용',
+            Amount: amount,
+            Reason: reason,
+            Balance_After: balanceAfter,
+          });
+        }
+      };
+
+      return {
       students: {},
       currentStudentId: null,
       isTeacher: false,
@@ -86,6 +108,7 @@ export const useStore = create<StoreState>()(
       shopItems: [...SHOP_REWARD_ITEMS, ...EVOLUTION_STONES],
       energyRules: DEFAULT_ENERGY_RULES,
       collectEntries: [],
+      energyTransactions: [],
       sheetsWebhookUrl: null,
 
       registerStudent: (name, password, speciesId) => {
@@ -128,18 +151,21 @@ export const useStore = create<StoreState>()(
       },
       teacherLogout: () => set({ isTeacher: false }),
 
-      addPoints: (studentId, amount) => {
+      addPoints: (studentId, amount, reason) => {
         set((state) => {
           const s = state.students[studentId];
           if (!s) return state;
           return { students: { ...state.students, [studentId]: { ...s, points: s.points + amount } } };
         });
+        const s = get().students[studentId];
+        if (s) logTransaction(studentId, 'earn', amount, reason ?? '기타 지급', s.points);
       },
 
-      spendPoints: (studentId, amount) => {
+      spendPoints: (studentId, amount, reason) => {
         const s = get().students[studentId];
         if (!s || s.points < amount) return false;
         set((state) => ({ students: { ...state.students, [studentId]: { ...s, points: s.points - amount } } }));
+        logTransaction(studentId, 'spend', amount, reason ?? '기타 사용', s.points - amount);
         return true;
       },
 
@@ -183,6 +209,10 @@ export const useStore = create<StoreState>()(
             },
           };
         });
+        if (cost > 0) {
+          const after = get().students[studentId];
+          if (after) logTransaction(studentId, 'spend', cost, '도감 · 다른 알로 교체', after.points);
+        }
         return { ok: true };
       },
 
@@ -201,14 +231,15 @@ export const useStore = create<StoreState>()(
       addMoodEntry: (entry) => {
         const newEntry: MoodEntry = { ...entry, id: uid(), timestamp: new Date().toISOString() };
         set((state) => ({ moodEntries: [newEntry, ...state.moodEntries] }));
-        if (entry.reward) get().addPoints(entry.studentId, entry.reward);
+        if (entry.reward) get().addPoints(entry.studentId, entry.reward, '감정 체크인 보상');
         const webhookUrl = get().sheetsWebhookUrl;
         if (webhookUrl) {
           const student = get().students[entry.studentId];
-          pushRowToSheet(webhookUrl, '실시간 기분', {
+          pushRowToSheet(webhookUrl, '오늘의 감정 체크인', {
             Timestamp: newEntry.timestamp,
             Student_Name: student?.name ?? '',
             Color_Zone: newEntry.colorZone,
+            Zone_Score: ZONE_SCORE[newEntry.colorZone],
             Emoji: newEntry.emoji,
             Help_Requested: newEntry.helpRequested ? 'Y' : 'N',
           });
@@ -248,7 +279,7 @@ export const useStore = create<StoreState>()(
         set((state) => ({ journalEntries: [newEntry, ...state.journalEntries] }));
         const webhookUrl = get().sheetsWebhookUrl;
         if (webhookUrl) {
-          pushRowToSheet(webhookUrl, '감정 일지', {
+          pushRowToSheet(webhookUrl, '학생들의 감정일지', {
             Timestamp: newEntry.timestamp,
             Student_Name: student?.name ?? '',
             Category: newEntry.category,
@@ -298,14 +329,15 @@ export const useStore = create<StoreState>()(
         });
         if (canReward) {
           const reward = get().energyRules.regulationTool;
-          get().addPoints(studentId, reward);
+          const toolName = REGULATION_TOOLS.find((t) => t.id === toolId)?.name || toolId;
+          get().addPoints(studentId, reward, `감정 다스리기 도구 사용: ${toolName}`);
           return reward;
         }
         return 0;
       },
 
       purchaseItem: (studentId, item) => {
-        const ok = get().spendPoints(studentId, item.cost);
+        const ok = get().spendPoints(studentId, item.cost, `매점 구매: ${item.name}`);
         if (!ok) return { ok: false, error: '감정 에너지가 부족해요!' };
         const record: PurchaseRecord = {
           id: uid(),
@@ -322,20 +354,25 @@ export const useStore = create<StoreState>()(
         return { ok: true };
       },
 
-      teacherAdjustPoints: (studentId, delta, _reason) => {
+      teacherAdjustPoints: (studentId, delta, reason) => {
         set((state) => {
           const s = state.students[studentId];
           if (!s) return state;
           const points = Math.max(0, s.points + delta);
           return { students: { ...state.students, [studentId]: { ...s, points } } };
         });
+        const after = get().students[studentId];
+        if (after && delta !== 0) {
+          logTransaction(studentId, delta > 0 ? 'earn' : 'spend', Math.abs(delta), reason || (delta > 0 ? '교사 수동 지급' : '교사 수동 차감'), after.points);
+        }
       },
 
       addShopItem: (item) => set((state) => ({ shopItems: [...state.shopItems, item] })),
       removeShopItem: (itemId) => set((state) => ({ shopItems: state.shopItems.filter((i) => i.id !== itemId) })),
       setEnergyRule: (key, value) =>
         set((state) => ({ energyRules: { ...state.energyRules, [key]: Math.max(0, value) } })),
-    }),
+      };
+    },
     { name: 'emonster-store-v1' }
   )
 );

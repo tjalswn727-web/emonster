@@ -71,6 +71,14 @@ export const ZONES: Record<ZoneColor, ZoneConfig> = {
   },
 };
 
+/** 감정 구역을 하루/주간 평균으로 수치화할 때 쓰는 점수 — 초록(가장 안정) 4점 → 빨강(위기) 1점 */
+export const ZONE_SCORE: Record<ZoneColor, number> = {
+  green: 4,
+  yellow: 3,
+  blue: 2,
+  red: 1,
+};
+
 export const REGULATION_TOOLS = [
   { id: 'count10', name: '10초 세기', icon: '🔢', description: '몬스터와 함께 10부터 1까지 천천히 세어봐요' },
   { id: 'breathe', name: '심호흡하기', icon: '🌬️', description: '내 몬스터를 따라 숨을 마시고 내쉬어요' },

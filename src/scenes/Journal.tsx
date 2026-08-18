@@ -45,7 +45,7 @@ export default function Journal() {
       setToast(res.error || '저장에 실패했어요.');
       return;
     }
-    addPoints(student.id, energyRules.journal);
+    addPoints(student.id, energyRules.journal, '주식회사 일지 작성');
     setToast(`일지 저장 완료! 감정 에너지 +${energyRules.journal}pt`);
     setJustSaved(true);
   };

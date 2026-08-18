@@ -51,7 +51,7 @@ export default function Collect() {
       if (idx + 1 < words.length) {
         setIdx((i) => i + 1);
       } else {
-        addPoints(student.id, energyRules.vocabMatch);
+        addPoints(student.id, energyRules.vocabMatch, '어휘 매칭 완료');
         setToast(`1단계 완료! 감정 에너지 +${energyRules.vocabMatch}pt`);
         setPhase('situation');
         setIdx(0);
@@ -83,7 +83,7 @@ export default function Collect() {
         setPhase('done');
         return;
       }
-      addPoints(student.id, energyRules.situationResponse);
+      addPoints(student.id, energyRules.situationResponse, '상황별 반응 완료');
       setToast(`2단계 완료! 감정 에너지 +${energyRules.situationResponse}pt`);
       setPhase('done');
     }
