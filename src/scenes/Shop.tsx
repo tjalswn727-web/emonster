@@ -4,7 +4,7 @@ import Toast from '../components/Toast';
 import MonsterArt from '../components/MonsterArt';
 import { EVOLUTION_STAGE_LABELS } from '../data/monsters';
 import { useCurrentStudent } from '../store/hooks';
-import { useStore } from '../store/useStore';
+import { maxStageFor, useStore } from '../store/useStore';
 import type { EvolutionStage, ShopItem } from '../types';
 
 export default function Shop() {
@@ -90,8 +90,9 @@ export default function Shop() {
             <div className="grid grid-cols-1 gap-3">
               {stoneItems.map((item) => {
                 const stage = item.stage as EvolutionStage;
-                const isNext = stage === student.stage + 1;
-                const already = stage <= student.stage;
+                const maxStage = maxStageFor(student, student.speciesId);
+                const isNext = stage === maxStage + 1;
+                const already = stage <= maxStage;
                 return (
                   <div key={item.id} className={`bg-white rounded-2xl shadow p-4 flex items-center gap-3 ${!isNext && !already ? 'opacity-50' : ''}`}>
                     <MonsterArt stage={stage} size={56} animated={false} speciesId={student.speciesId} locked={!isNext && !already} />

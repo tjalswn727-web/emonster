@@ -55,6 +55,8 @@ interface StoreState {
   evolveStudent: (studentId: string, stage: EvolutionStage) => void;
   switchSpecies: (studentId: string, targetSpeciesId: string) => { ok: boolean; error?: string };
   setMonsterNickname: (studentId: string, speciesId: string, nickname: string) => void;
+  /** 도감에서 이미 도달한 단계 중 하나를 골라 지금 보여줄 모습으로 선택 (무료, 최고 도달 단계는 그대로 유지) */
+  setDisplayStage: (studentId: string, speciesId: string, stage: EvolutionStage) => void;
 
   addMoodEntry: (entry: Omit<MoodEntry, 'id' | 'timestamp'>) => string;
   resolveSOS: (entryId: string) => void;
@@ -126,6 +128,7 @@ export const useStore = create<StoreState>()(
           points: 0,
           createdAt: new Date().toISOString(),
           monsterProgress: { [speciesId]: 0 },
+          monsterMaxStage: { [speciesId]: 0 },
         };
         set({ students: { ...students, [id]: student }, currentStudentId: id });
         return { ok: true, id };
@@ -173,10 +176,17 @@ export const useStore = create<StoreState>()(
         set((state) => {
           const s = state.students[studentId];
           if (!s) return state;
+          const prevMax = s.monsterMaxStage?.[s.speciesId] ?? s.stage;
+          const nextMax = Math.max(prevMax, stage) as EvolutionStage;
           return {
             students: {
               ...state.students,
-              [studentId]: { ...s, stage, monsterProgress: { ...s.monsterProgress, [s.speciesId]: stage } },
+              [studentId]: {
+                ...s,
+                stage,
+                monsterProgress: { ...s.monsterProgress, [s.speciesId]: stage },
+                monsterMaxStage: { ...s.monsterMaxStage, [s.speciesId]: nextMax },
+              },
             },
           };
         });
@@ -196,6 +206,11 @@ export const useStore = create<StoreState>()(
           if (!cur) return state;
           const savedProgress = { ...cur.monsterProgress, [cur.speciesId]: cur.stage };
           const nextStage = savedProgress[targetSpeciesId] ?? 0;
+          // 이번에 떠나는 종의 최고 도달 단계를 확실히 기록해두고, 새로 만나는 종은 0단계부터 추적을 시작한다.
+          const savedMax = { ...cur.monsterMaxStage };
+          const curMax = savedMax[cur.speciesId] ?? cur.stage;
+          savedMax[cur.speciesId] = Math.max(curMax, cur.stage) as EvolutionStage;
+          if (savedMax[targetSpeciesId] === undefined) savedMax[targetSpeciesId] = 0;
           return {
             students: {
               ...state.students,
@@ -205,6 +220,7 @@ export const useStore = create<StoreState>()(
                 speciesId: targetSpeciesId,
                 stage: nextStage,
                 monsterProgress: { ...savedProgress, [targetSpeciesId]: nextStage },
+                monsterMaxStage: savedMax,
               },
             },
           };
@@ -214,6 +230,26 @@ export const useStore = create<StoreState>()(
           if (after) logTransaction(studentId, 'spend', cost, '도감 · 다른 알로 교체', after.points);
         }
         return { ok: true };
+      },
+
+      setDisplayStage: (studentId, speciesId, stage) => {
+        set((state) => {
+          const s = state.students[studentId];
+          if (!s) return state;
+          const maxStage = s.monsterMaxStage?.[speciesId] ?? (s.speciesId === speciesId ? s.stage : s.monsterProgress?.[speciesId] ?? 0);
+          if (stage > maxStage) return state; // 아직 도달하지 못한 단계는 선택할 수 없음
+          const isActive = s.speciesId === speciesId;
+          return {
+            students: {
+              ...state.students,
+              [studentId]: {
+                ...s,
+                stage: isActive ? stage : s.stage,
+                monsterProgress: { ...s.monsterProgress, [speciesId]: stage },
+              },
+            },
+          };
+        });
       },
 
       setMonsterNickname: (studentId, speciesId, nickname) => {
@@ -376,6 +412,14 @@ export const useStore = create<StoreState>()(
     { name: 'emonster-store-v1' }
   )
 );
+
+/** 학생이 특정 종에서 실제로 도달한 최고 진화 단계 (도감의 이전 단계 미리보기 선택과 무관하게 항상 정확함) */
+export const maxStageFor = (student: Student, speciesId: string): EvolutionStage => {
+  const tracked = student.monsterMaxStage?.[speciesId];
+  if (tracked !== undefined) return tracked;
+  if (student.speciesId === speciesId) return student.stage;
+  return (student.monsterProgress?.[speciesId] as EvolutionStage | undefined) ?? 0;
+};
 
 export const zoneRedCountToday = (studentId: string, entries: MoodEntry[]) => {
   const today = new Date().toDateString();

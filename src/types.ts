@@ -102,8 +102,10 @@ export interface Student {
   points: number;
   createdAt: string;
   lastToolUse?: Record<string, string>;
-  /** 종별로 이전에 키우던 진화 단계를 저장 — 다른 알로 교체해도 언제든 되돌아갈 수 있게 함 */
+  /** 종별로 현재 화면에 표시 중인 진화 단계 — 다른 알로 교체해도 언제든 되돌아갈 수 있게 함 */
   monsterProgress?: Partial<Record<string, EvolutionStage>>;
+  /** 종별로 실제 도달한 최고 진화 단계 (되돌리기 방지용) — 도감에서 이전 단계를 보기로 선택해도 줄어들지 않음 */
+  monsterMaxStage?: Partial<Record<string, EvolutionStage>>;
   /** 종별 커스텀 별명 (도감에서 지정) */
   monsterNicknames?: Partial<Record<string, string>>;
 }

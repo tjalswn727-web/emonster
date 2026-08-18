@@ -4,7 +4,7 @@ import Toast from '../components/Toast';
 import MonsterArt from '../components/MonsterArt';
 import { EVOLUTION_STAGE_LABELS, MONSTER_SPECIES } from '../data/monsters';
 import { useCurrentStudent } from '../store/hooks';
-import { useStore } from '../store/useStore';
+import { maxStageFor, useStore } from '../store/useStore';
 import type { EvolutionStage } from '../types';
 
 const STAGES: EvolutionStage[] = [0, 1, 2, 3, 4];
@@ -17,6 +17,7 @@ export default function Monsterdex() {
   const student = useCurrentStudent();
   const switchSpecies = useStore((s) => s.switchSpecies);
   const setMonsterNickname = useStore((s) => s.setMonsterNickname);
+  const setDisplayStage = useStore((s) => s.setDisplayStage);
   const energyRules = useStore((s) => s.energyRules);
   const journalEntries = useStore((s) => s.journalEntries);
 
@@ -56,6 +57,7 @@ export default function Monsterdex() {
           const savedStage = student.monsterProgress?.[species.id];
           const owned = savedStage !== undefined || isActive;
           const currentStage: EvolutionStage = isActive ? student.stage : (savedStage ?? 0);
+          const maxStage = owned ? maxStageFor(student, species.id) : 0;
           const nickname = student.monsterNicknames?.[species.id];
           const displayName = nickname || species.name;
           const collected = owned
@@ -138,22 +140,32 @@ export default function Monsterdex() {
               {owned && (
                 <div className="mt-3 grid grid-cols-5 gap-1.5">
                   {STAGES.map((st) => {
-                    const unlocked = st <= currentStage;
+                    const reached = st <= maxStage;
+                    const isShown = st === currentStage;
                     return (
-                      <div
+                      <button
                         key={st}
-                        className={`rounded-xl p-1 text-center ${
-                          unlocked ? 'bg-brand-50' : 'bg-gray-100'
-                        } ${st === currentStage ? 'ring-2 ring-brand-400' : ''}`}
+                        type="button"
+                        disabled={!reached}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (reached && !isShown) setDisplayStage(student.id, species.id, st);
+                        }}
+                        className={`rounded-xl p-1 text-center transition ${
+                          reached ? 'bg-brand-50 active:scale-95' : 'bg-gray-100 cursor-not-allowed'
+                        } ${isShown ? 'ring-2 ring-brand-400' : ''}`}
                       >
-                        <MonsterArt stage={st} size={44} animated={false} speciesId={species.id} locked={!unlocked} />
-                        <p className={`text-[9px] mt-0.5 font-semibold ${unlocked ? 'text-brand-700' : 'text-gray-400'}`}>
-                          {unlocked ? EVOLUTION_STAGE_LABELS[st] : '?'}
+                        <MonsterArt stage={st} size={44} animated={false} speciesId={species.id} locked={!reached} />
+                        <p className={`text-[9px] mt-0.5 font-semibold ${reached ? 'text-brand-700' : 'text-gray-400'}`}>
+                          {reached ? EVOLUTION_STAGE_LABELS[st] : '?'}
                         </p>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
+              )}
+              {owned && maxStage > 0 && (
+                <p className="mt-1.5 text-[11px] text-brand-400">▲ 도달한 단계는 눌러서 지금 보여줄 모습으로 바꿀 수 있어요 (무료)</p>
               )}
 
               {owned && expanded && (
