@@ -6,6 +6,7 @@ import type { EvolutionStage } from '../types';
 const BREATHE_PHASE_NAMES = ['마시기', '멈추기', '내쉬기'] as const;
 const BREATHE_DURATIONS = [4000, 2000, 4000];
 const BREATHE_SCALE = [1.28, 1.28, 0.72]; // 마시기(부풀기) / 멈추기(유지) / 내쉬기(줄어들기)
+const BREATHE_REST_SCALE = 1; // 시작 화면 — 마시지도 내쉬지도 않은 중간 크기
 
 export function CountTool({ onComplete }: { onComplete: () => void }) {
   const [n, setN] = useState(10);
@@ -68,9 +69,24 @@ function BreathingMonster({ speciesId, stage, scale, duration }: { speciesId: st
 export function BreatheTool({ onComplete, speciesId, stage }: { onComplete: () => void; speciesId: string; stage: EvolutionStage }) {
   const [round, setRound] = useState(0);
   const [phaseIdx, setPhaseIdx] = useState(0);
+  const [started, setStarted] = useState(false);
   const done = round >= 3;
 
+  // 처음 그려질 때 바로 "마시기" 크기로 나타나면 커지는 게 안 보이므로, 중간 크기로 한 박자
+  // 멈춰 있다가 다음 프레임에 넘어가면서 실제로 커지는 전환 애니메이션이 보이게 한다.
   useEffect(() => {
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setStarted(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!started) return;
     if (done) {
       const t = setTimeout(onComplete, 800);
       return () => clearTimeout(t);
@@ -84,17 +100,15 @@ export function BreatheTool({ onComplete, speciesId, stage }: { onComplete: () =
       }
     }, BREATHE_DURATIONS[phaseIdx]);
     return () => clearTimeout(t);
-  }, [phaseIdx, round, done, onComplete]);
+  }, [started, phaseIdx, round, done, onComplete]);
+
+  const scale = !started ? BREATHE_REST_SCALE : done ? 1 : BREATHE_SCALE[phaseIdx];
+  const duration = !started ? 0 : done ? 0.8 : BREATHE_DURATIONS[phaseIdx] / 1000;
 
   return (
     <div className="flex flex-col items-center py-6">
       <div className="h-64 flex items-end justify-center overflow-visible">
-        <BreathingMonster
-          speciesId={speciesId}
-          stage={stage}
-          scale={done ? 1 : BREATHE_SCALE[phaseIdx]}
-          duration={done ? 0.8 : BREATHE_DURATIONS[phaseIdx] / 1000}
-        />
+        <BreathingMonster speciesId={speciesId} stage={stage} scale={scale} duration={duration} />
       </div>
       <p className="mt-2 text-brand-800 font-bold text-2xl">
         {done ? '숨을 편안하게 쉬었어요! 💚' : BREATHE_PHASE_NAMES[phaseIdx]}
