@@ -1,0 +1,28 @@
+name: fetch-attachments
+on:
+  workflow_dispatch: {}
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download issue attachments
+        run: |
+          mkdir -p uploads/newmonster
+          curl -sSL "https://github.com/user-attachments/assets/42ba7fd9-a6b0-4fa6-b9c8-24fc2959c15f" -o uploads/newmonster/1.png
+          curl -sSL "https://github.com/user-attachments/assets/51ad66a9-f562-4192-9949-8e4dd8a501bd" -o uploads/newmonster/2.png
+          curl -sSL "https://github.com/user-attachments/assets/218a1c63-3044-480e-98bd-828ca6318e13" -o uploads/newmonster/3.png
+          curl -sSL "https://github.com/user-attachments/assets/c6e41bb1-659f-4108-b25b-984e74ab3785" -o uploads/newmonster/4.png
+          curl -sSL "https://github.com/user-attachments/assets/09f7db5c-4560-403b-a6c8-b0bddbeebad5" -o uploads/newmonster/5.png
+          ls -la uploads/newmonster
+          file uploads/newmonster/*
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add uploads/newmonster
+          git commit -m "chore: fetch issue attachments" || echo "nothing to commit"
+          git push
