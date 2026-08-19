@@ -71,6 +71,8 @@ export interface ShopItem {
   icon: string;
   /** 이미지 URL이 있으면 이모지 아이콘 대신 표시 */
   imageUrl?: string;
+  /** 남은 재고 수량 — 지정하지 않으면 무제한(진화의 돌 등 디지털 상품) */
+  stock?: number;
 }
 
 export interface PurchaseRecord {

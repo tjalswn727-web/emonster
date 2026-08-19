@@ -91,15 +91,24 @@ export default function Admin() {
   const resolveSOS = useStore((s) => s.resolveSOS);
   const addShopItem = useStore((s) => s.addShopItem);
   const removeShopItem = useStore((s) => s.removeShopItem);
+  const updateShopItem = useStore((s) => s.updateShopItem);
   const energyRules = useStore((s) => s.energyRules);
   const setEnergyRule = useStore((s) => s.setEnergyRule);
   const sheetsWebhookUrl = useStore((s) => s.sheetsWebhookUrl);
   const setSheetsWebhookUrl = useStore((s) => s.setSheetsWebhookUrl);
+  const setTeacherPassword = useStore((s) => s.setTeacherPassword);
+  const teacherSetStudentPassword = useStore((s) => s.teacherSetStudentPassword);
 
-  const [tab, setTab] = useState<'status' | 'shop' | 'energy' | 'sync'>('status');
+  const [tab, setTab] = useState<'status' | 'shop' | 'energy' | 'sync' | 'accounts'>('status');
   const [amounts, setAmounts] = useState<Record<string, number>>({});
-  const [newItem, setNewItem] = useState({ name: '', description: '', cost: 20, icon: '🎁', imageUrl: '' });
+  const [newItem, setNewItem] = useState({ name: '', description: '', cost: 20, icon: '🎁', imageUrl: '', stock: '' });
+  const [itemDrafts, setItemDrafts] = useState<Record<string, { cost: number; stock: string }>>({});
   const [ruleDrafts, setRuleDrafts] = useState<Partial<Record<keyof EnergyRules, number>>>({});
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwMsg, setPwMsg] = useState<string | null>(null);
+  const [studentPwDrafts, setStudentPwDrafts] = useState<Record<string, string>>({});
+  const [studentPwMsg, setStudentPwMsg] = useState<Record<string, string>>({});
   const [webhookDraft, setWebhookDraft] = useState(sheetsWebhookUrl ?? '');
   const [showSetupGuide, setShowSetupGuide] = useState(false);
   const [moodCsv, setMoodCsv] = useState<string | null>(null);
@@ -143,6 +152,7 @@ export default function Admin() {
 
   const handleAddItem = () => {
     if (!newItem.name.trim() || newItem.cost <= 0) return;
+    const stockTrimmed = newItem.stock.trim();
     const item: ShopItem = {
       id: `reward-${Date.now()}`,
       name: newItem.name.trim(),
@@ -151,9 +161,44 @@ export default function Admin() {
       type: 'reward',
       icon: newItem.icon || '🎁',
       imageUrl: newItem.imageUrl.trim() || undefined,
+      stock: stockTrimmed === '' ? undefined : Math.max(0, Number(stockTrimmed)),
     };
     addShopItem(item);
-    setNewItem({ name: '', description: '', cost: 20, icon: '🎁', imageUrl: '' });
+    setNewItem({ name: '', description: '', cost: 20, icon: '🎁', imageUrl: '', stock: '' });
+  };
+
+  const getItemDraft = (item: ShopItem) => itemDrafts[item.id] ?? { cost: item.cost, stock: item.stock !== undefined ? String(item.stock) : '' };
+
+  const handleSaveItem = (item: ShopItem) => {
+    const draft = getItemDraft(item);
+    const stockTrimmed = draft.stock.trim();
+    updateShopItem(item.id, {
+      cost: Math.max(0, draft.cost),
+      stock: stockTrimmed === '' ? undefined : Math.max(0, Number(stockTrimmed)),
+    });
+    setItemDrafts((d) => {
+      const next = { ...d };
+      delete next[item.id];
+      return next;
+    });
+  };
+
+  const handleChangeTeacherPassword = () => {
+    const res = setTeacherPassword(pwCurrent, pwNew);
+    if (!res.ok) {
+      setPwMsg(res.error || '변경에 실패했어요.');
+      return;
+    }
+    setPwMsg('비밀번호가 변경됐어요!');
+    setPwCurrent('');
+    setPwNew('');
+  };
+
+  const handleChangeStudentPassword = (studentId: string) => {
+    const draft = studentPwDrafts[studentId] ?? '';
+    const res = teacherSetStudentPassword(studentId, draft);
+    setStudentPwMsg((m) => ({ ...m, [studentId]: res.ok ? '변경 완료!' : res.error || '변경 실패' }));
+    if (res.ok) setStudentPwDrafts((d) => ({ ...d, [studentId]: '' }));
   };
 
   const handleSaveWebhook = () => setSheetsWebhookUrl(webhookDraft.trim() || null);
@@ -245,6 +290,9 @@ export default function Admin() {
         </button>
         <button onClick={() => setTab('sync')} className={`flex-1 py-2 rounded-full font-bold text-sm transition ${tab === 'sync' ? 'bg-brand-700 text-white' : 'text-brand-700'}`}>
           🔗 데이터 연동
+        </button>
+        <button onClick={() => setTab('accounts')} className={`flex-1 py-2 rounded-full font-bold text-sm transition ${tab === 'accounts' ? 'bg-brand-700 text-white' : 'text-brand-700'}`}>
+          🔐 계정 관리
         </button>
       </div>
 
@@ -398,12 +446,21 @@ export default function Admin() {
               className="mt-2 w-full rounded-lg border border-brand-200 px-2 py-2"
               placeholder="이미지 URL (선택 · 비워두면 이모지 아이콘 사용)"
             />
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
               <label className="text-sm text-brand-700">가격</label>
               <input
                 type="number"
                 value={newItem.cost}
                 onChange={(e) => setNewItem((v) => ({ ...v, cost: Number(e.target.value) }))}
+                className="w-24 rounded-lg border border-brand-200 px-2 py-2"
+              />
+              <label className="text-sm text-brand-700 ml-2">수량</label>
+              <input
+                type="number"
+                min={0}
+                value={newItem.stock}
+                onChange={(e) => setNewItem((v) => ({ ...v, stock: e.target.value }))}
+                placeholder="무제한"
                 className="w-24 rounded-lg border border-brand-200 px-2 py-2"
               />
               <button onClick={handleAddItem} className="ml-auto px-4 py-2 rounded-lg bg-brand-500 text-white font-bold">
@@ -415,24 +472,61 @@ export default function Admin() {
           <div className="bg-white rounded-2xl shadow divide-y divide-brand-50">
             {shopItems
               .filter((i) => i.type === 'reward')
-              .map((item) => (
-                <div key={item.id} className="p-3 flex items-center gap-3">
-                  {item.imageUrl ? (
-                    <img src={item.imageUrl} alt={item.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
-                  ) : (
-                    <span className="text-2xl shrink-0">{item.icon}</span>
-                  )}
-                  <div className="flex-1">
-                    <p className="font-bold text-brand-900 text-sm">{item.name}</p>
-                    <p className="text-xs text-brand-600">
-                      {item.description} · ⚡{item.cost}
-                    </p>
+              .map((item) => {
+                const draft = getItemDraft(item);
+                const soldOut = item.stock !== undefined && item.stock <= 0;
+                const dirty = draft.cost !== item.cost || draft.stock !== (item.stock !== undefined ? String(item.stock) : '');
+                return (
+                  <div key={item.id} className="p-3">
+                    <div className="flex items-center gap-3">
+                      {item.imageUrl ? (
+                        <img src={item.imageUrl} alt={item.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                      ) : (
+                        <span className="text-2xl shrink-0">{item.icon}</span>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-brand-900 text-sm flex items-center gap-1.5">
+                          {item.name}
+                          {soldOut && <span className="text-[10px] bg-zone-red text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">품절</span>}
+                        </p>
+                        <p className="text-xs text-brand-600 truncate">{item.description}</p>
+                      </div>
+                      <button onClick={() => removeShopItem(item.id)} className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-500 font-bold shrink-0">
+                        삭제
+                      </button>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2 flex-wrap pl-[52px]">
+                      <span className="text-xs text-brand-600">가격</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-brand-500 text-sm">⚡</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={draft.cost}
+                          onChange={(e) => setItemDrafts((d) => ({ ...d, [item.id]: { ...draft, cost: Number(e.target.value) } }))}
+                          className="w-20 rounded-lg border border-brand-200 px-2 py-1 text-sm"
+                        />
+                      </div>
+                      <span className="text-xs text-brand-600 ml-1">수량</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={draft.stock}
+                        placeholder="무제한"
+                        onChange={(e) => setItemDrafts((d) => ({ ...d, [item.id]: { ...draft, stock: e.target.value } }))}
+                        className="w-24 rounded-lg border border-brand-200 px-2 py-1 text-sm"
+                      />
+                      <button
+                        onClick={() => handleSaveItem(item)}
+                        disabled={!dirty}
+                        className="ml-auto px-3 py-1.5 rounded-lg bg-brand-500 text-white text-xs font-bold disabled:opacity-30"
+                      >
+                        저장
+                      </button>
+                    </div>
                   </div>
-                  <button onClick={() => removeShopItem(item.id)} className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-500 font-bold">
-                    삭제
-                  </button>
-                </div>
-              ))}
+                );
+              })}
           </div>
         </div>
       )}
@@ -591,6 +685,63 @@ export default function Admin() {
               </button>
             </div>
             {energyCsv && <CsvBlock label="에너지 적립·사용 내역 CSV" csv={energyCsv} onCopy={handleCopy} />}
+          </div>
+        </div>
+      )}
+
+      {tab === 'accounts' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl shadow p-4">
+            <h2 className="font-bold text-brand-900 mb-1">교사 비밀번호 변경</h2>
+            <p className="text-sm text-brand-600 mb-3">관리자 모드에 들어올 때 쓰는 비밀번호예요. 기본값은 0000이에요.</p>
+            <div className="space-y-2 max-w-xs">
+              <input
+                type="password"
+                value={pwCurrent}
+                onChange={(e) => setPwCurrent(e.target.value)}
+                placeholder="현재 비밀번호"
+                className="w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+              />
+              <input
+                type="password"
+                value={pwNew}
+                onChange={(e) => setPwNew(e.target.value)}
+                placeholder="새 비밀번호 (4자 이상)"
+                className="w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+              />
+              <button onClick={handleChangeTeacherPassword} className="px-4 py-2 rounded-lg bg-brand-500 text-white font-bold text-sm">
+                변경하기
+              </button>
+              {pwMsg && <p className="text-xs text-brand-600">{pwMsg}</p>}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow p-4">
+            <h2 className="font-bold text-brand-900 mb-1">학생 비밀번호 관리</h2>
+            <p className="text-sm text-brand-600 mb-3">학생이 비밀번호를 잊어버렸을 때 숫자 4자리로 새로 바꿔줄 수 있어요.</p>
+            {studentList.length === 0 && <p className="text-sm text-brand-600">아직 등록된 학생이 없어요.</p>}
+            <div className="space-y-2">
+              {studentList.map((st) => (
+                <div key={st.id} className="flex items-center gap-2 flex-wrap border border-brand-100 rounded-xl p-2">
+                  <p className="font-bold text-brand-900 text-sm w-20 truncate shrink-0">{st.name}</p>
+                  <input
+                    value={studentPwDrafts[st.id] ?? ''}
+                    onChange={(e) =>
+                      setStudentPwDrafts((d) => ({ ...d, [st.id]: e.target.value.replace(/[^0-9]/g, '').slice(0, 4) }))
+                    }
+                    placeholder="새 비밀번호 4자리"
+                    className="flex-1 min-w-[120px] rounded-lg border border-brand-200 px-2 py-1.5 text-sm"
+                  />
+                  <button
+                    onClick={() => handleChangeStudentPassword(st.id)}
+                    className="px-3 py-1.5 rounded-lg bg-brand-500 text-white text-xs font-bold shrink-0"
+                  >
+                    변경
+                  </button>
+                  {studentPwMsg[st.id] && <p className="text-xs text-brand-500 basis-full">{studentPwMsg[st.id]}</p>}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

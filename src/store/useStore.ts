@@ -43,12 +43,15 @@ interface StoreState {
   collectEntries: CollectEntry[];
   energyTransactions: EnergyTransaction[];
   sheetsWebhookUrl: string | null;
+  teacherPassword: string;
 
   registerStudent: (name: string, password: string, speciesId: string) => { ok: boolean; error?: string; id?: string };
   login: (name: string, password: string) => { ok: boolean; error?: string };
   logout: () => void;
   teacherLogin: (password: string) => boolean;
   teacherLogout: () => void;
+  setTeacherPassword: (currentPassword: string, newPassword: string) => { ok: boolean; error?: string };
+  teacherSetStudentPassword: (studentId: string, newPassword: string) => { ok: boolean; error?: string };
 
   addPoints: (studentId: string, amount: number, reason?: string) => void;
   spendPoints: (studentId: string, amount: number, reason?: string) => boolean;
@@ -75,6 +78,7 @@ interface StoreState {
   teacherAdjustPoints: (studentId: string, delta: number, reason: string) => void;
   addShopItem: (item: ShopItem) => void;
   removeShopItem: (itemId: string) => void;
+  updateShopItem: (itemId: string, updates: Partial<Pick<ShopItem, 'cost' | 'stock'>>) => void;
   setEnergyRule: (key: keyof EnergyRules, value: number) => void;
 }
 
@@ -112,6 +116,7 @@ export const useStore = create<StoreState>()(
       collectEntries: [],
       energyTransactions: [],
       sheetsWebhookUrl: null,
+      teacherPassword: '0000',
 
       registerStudent: (name, password, speciesId) => {
         const { students } = get();
@@ -146,13 +151,28 @@ export const useStore = create<StoreState>()(
       logout: () => set({ currentStudentId: null }),
 
       teacherLogin: (password) => {
-        if (password === '0000') {
+        if (password === get().teacherPassword) {
           set({ isTeacher: true, currentStudentId: null });
           return true;
         }
         return false;
       },
       teacherLogout: () => set({ isTeacher: false }),
+
+      setTeacherPassword: (currentPassword, newPassword) => {
+        if (currentPassword !== get().teacherPassword) return { ok: false, error: '현재 비밀번호가 일치하지 않아요.' };
+        if (!newPassword.trim() || newPassword.length < 4) return { ok: false, error: '새 비밀번호는 4자 이상으로 만들어주세요.' };
+        set({ teacherPassword: newPassword.trim() });
+        return { ok: true };
+      },
+
+      teacherSetStudentPassword: (studentId, newPassword) => {
+        if (!/^[0-9]{4}$/.test(newPassword)) return { ok: false, error: '비밀번호는 숫자 4자리로 만들어주세요.' };
+        const s = get().students[studentId];
+        if (!s) return { ok: false, error: '학생 정보를 찾을 수 없어요.' };
+        set((state) => ({ students: { ...state.students, [studentId]: { ...s, password: newPassword } } }));
+        return { ok: true };
+      },
 
       addPoints: (studentId, amount, reason) => {
         set((state) => {
@@ -373,19 +393,27 @@ export const useStore = create<StoreState>()(
       },
 
       purchaseItem: (studentId, item) => {
-        const ok = get().spendPoints(studentId, item.cost, `매점 구매: ${item.name}`);
+        // store에 저장된 최신 재고/가격 기준으로 판단한다 (호출부에서 넘어온 item은 스냅샷일 수 있음)
+        const current = get().shopItems.find((i) => i.id === item.id) ?? item;
+        if (current.stock !== undefined && current.stock <= 0) return { ok: false, error: '품절된 상품이에요.' };
+        const ok = get().spendPoints(studentId, current.cost, `매점 구매: ${current.name}`);
         if (!ok) return { ok: false, error: '감정 에너지가 부족해요!' };
         const record: PurchaseRecord = {
           id: uid(),
           timestamp: new Date().toISOString(),
           studentId,
-          itemId: item.id,
-          itemName: item.name,
-          cost: item.cost,
+          itemId: current.id,
+          itemName: current.name,
+          cost: current.cost,
         };
         set((state) => ({ purchases: [record, ...state.purchases] }));
-        if (item.type === 'stone' && item.stage !== undefined) {
-          get().evolveStudent(studentId, item.stage);
+        if (current.stock !== undefined) {
+          set((state) => ({
+            shopItems: state.shopItems.map((i) => (i.id === current.id ? { ...i, stock: Math.max(0, (i.stock ?? 0) - 1) } : i)),
+          }));
+        }
+        if (current.type === 'stone' && current.stage !== undefined) {
+          get().evolveStudent(studentId, current.stage);
         }
         return { ok: true };
       },
@@ -405,6 +433,10 @@ export const useStore = create<StoreState>()(
 
       addShopItem: (item) => set((state) => ({ shopItems: [...state.shopItems, item] })),
       removeShopItem: (itemId) => set((state) => ({ shopItems: state.shopItems.filter((i) => i.id !== itemId) })),
+      updateShopItem: (itemId, updates) =>
+        set((state) => ({
+          shopItems: state.shopItems.map((i) => (i.id === itemId ? { ...i, ...updates } : i)),
+        })),
       setEnergyRule: (key, value) =>
         set((state) => ({ energyRules: { ...state.energyRules, [key]: Math.max(0, value) } })),
       };

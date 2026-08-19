@@ -63,26 +63,31 @@ export default function Shop() {
 
           {tab === 'reward' && (
             <div className="grid grid-cols-1 gap-3">
-              {rewardItems.map((item) => (
-                <div key={item.id} className="bg-white rounded-2xl shadow p-4 flex items-center gap-3">
-                  {item.imageUrl ? (
-                    <img src={item.imageUrl} alt={item.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
-                  ) : (
-                    <span className="text-3xl shrink-0">{item.icon}</span>
-                  )}
-                  <div className="flex-1">
-                    <p className="font-bold text-brand-900 text-sm">{item.name}</p>
-                    <p className="text-xs text-brand-600">{item.description}</p>
+              {rewardItems.map((item) => {
+                const soldOut = item.stock !== undefined && item.stock <= 0;
+                return (
+                  <div key={item.id} className={`bg-white rounded-2xl shadow p-4 flex items-center gap-3 ${soldOut ? 'opacity-50' : ''}`}>
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt={item.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                    ) : (
+                      <span className="text-3xl shrink-0">{item.icon}</span>
+                    )}
+                    <div className="flex-1">
+                      <p className="font-bold text-brand-900 text-sm">{item.name}</p>
+                      <p className="text-xs text-brand-600">{item.description}</p>
+                      {item.stock !== undefined && !soldOut && <p className="text-[11px] text-brand-500 mt-0.5">남은 수량 {item.stock}개</p>}
+                      {soldOut && <p className="text-[11px] text-zone-red font-bold mt-0.5">품절</p>}
+                    </div>
+                    <button
+                      onClick={() => handleBuy(item)}
+                      disabled={soldOut || student.points < item.cost}
+                      className="px-3 py-2 rounded-xl bg-brand-500 text-white font-bold text-sm shadow disabled:opacity-30 whitespace-nowrap"
+                    >
+                      {soldOut ? '품절' : `⚡${item.cost}`}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleBuy(item)}
-                    disabled={student.points < item.cost}
-                    className="px-3 py-2 rounded-xl bg-brand-500 text-white font-bold text-sm shadow disabled:opacity-30 whitespace-nowrap"
-                  >
-                    ⚡{item.cost}
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
