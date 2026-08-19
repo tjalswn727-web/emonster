@@ -173,12 +173,13 @@ export default function Monsterdex() {
                   {collected.length === 0 ? (
                     <p className="text-xs text-brand-500">아직 {displayName}와(과) 함께 기록한 감정이 없어요. 주식회사 일지를 써보세요!</p>
                   ) : (
+                    // 카테고리와 서술형 일지 내용은 개인정보 보호를 위해 도감에 노출하지 않고,
+                    // 오늘 배운 감정 낱말과 학생이 고른 온도만 보여준다 (내용은 구글 시트에서만 확인)
                     collected.map((entry) => (
                       <div key={entry.id} className="bg-white rounded-xl p-2.5">
                         <p className="text-[11px] text-brand-500">
-                          {dateStr(entry.timestamp)} · {entry.category} · <span className="font-bold text-brand-700">“{entry.word}”</span> · 온도 {entry.thermometer}
+                          {dateStr(entry.timestamp)} · <span className="font-bold text-brand-700">“{entry.word}”</span> · 온도 {entry.thermometer}
                         </p>
-                        <p className="text-xs text-brand-800 mt-1">{entry.journalContent}</p>
                       </div>
                     ))
                   )}
