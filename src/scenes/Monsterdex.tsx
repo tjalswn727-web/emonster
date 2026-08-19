@@ -19,7 +19,7 @@ export default function Monsterdex() {
   const setMonsterNickname = useStore((s) => s.setMonsterNickname);
   const setDisplayStage = useStore((s) => s.setDisplayStage);
   const energyRules = useStore((s) => s.energyRules);
-  const journalEntries = useStore((s) => s.journalEntries);
+  const journalMeta = useStore((s) => s.journalMeta);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
@@ -61,7 +61,7 @@ export default function Monsterdex() {
           const nickname = student.monsterNicknames?.[species.id];
           const displayName = nickname || species.name;
           const collected = owned
-            ? journalEntries.filter((e) => e.studentId === student.id && e.speciesId === species.id)
+            ? journalMeta.filter((e) => e.studentId === student.id && e.speciesId === species.id)
             : [];
           const expanded = expandedId === species.id;
 

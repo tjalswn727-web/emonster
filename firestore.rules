@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /classrooms/{classroomCode} {
+      // 교실 코드를 정확히 아는 요청만 그 교실 문서를 읽고 쓸 수 있다.
+      allow get: if true;
+      allow write: if true;
+      // 교실 목록 자체를 통째로 훑어보는 건 막아서, 코드를 모르면 존재 여부조차 알 수 없게 한다.
+      allow list: if false;
+
+      match /{subcollection}/{docId} {
+        allow read, write: if true;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

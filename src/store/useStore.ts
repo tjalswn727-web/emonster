@@ -4,6 +4,22 @@ import type { CollectEntry, EnergyTransaction, JournalEntry, MoodEntry, Purchase
 import { EVOLUTION_STONES, SHOP_REWARD_ITEMS } from '../data/monsters';
 import { REGULATION_TOOLS, ZONE_SCORE } from '../data/zones';
 import { pushRowToSheet } from '../lib/sheetsSync';
+import {
+  addEnergyTransaction,
+  addJournalMeta,
+  addPurchase,
+  createClassroom,
+  subscribeClassroomMeta,
+  subscribeEnergyTransactions,
+  subscribeJournalMeta,
+  subscribePurchases,
+  subscribeStudents,
+  syncClassroomCodeToUrl,
+  writeClassroomMeta,
+  writeStudent,
+  type ClassroomMeta,
+  type JournalMeta,
+} from '../lib/classroom';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -31,12 +47,28 @@ const DEFAULT_ENERGY_RULES: EnergyRules = {
   eggSwitchCost: 20,
 };
 
+const DEFAULT_SHOP_ITEMS: ShopItem[] = [...SHOP_REWARD_ITEMS, ...EVOLUTION_STONES];
+
 interface StoreState {
+  // --- 교실(멀티테넌시) ---
+  /** 지금 접속한 교실 코드. null이면 아직 교실을 만들거나 참여하지 않은 상태 */
+  classroomCode: string | null;
+  /** 이 교실의 Firestore 최초 응답을 받았는지 (로딩 화면 표시용) */
+  classroomReady: boolean;
+  /** 코드로 실제 교실을 찾았는지 (틀린 코드 안내용) */
+  classroomValid: boolean;
+  /** 교실에 실시간 연결하고 리스너를 구독한다. 앱을 새로 열 때마다 다시 호출해야 함 */
+  initClassroom: (code: string) => void;
+  /** 새 교실을 만들고 그 코드로 연결한다 */
+  createNewClassroom: () => Promise<string>;
+
   students: Record<string, Student>;
   currentStudentId: string | null;
   isTeacher: boolean;
   moodEntries: MoodEntry[];
   journalEntries: JournalEntry[];
+  /** 일지의 카테고리·서술형 내용은 빼고 낱말·온도만 담은, 교실 전체와 공유되는 기록 (도감 표시용) */
+  journalMeta: JournalMeta[];
   purchases: PurchaseRecord[];
   shopItems: ShopItem[];
   energyRules: EnergyRules;
@@ -82,14 +114,19 @@ interface StoreState {
   setEnergyRule: (key: keyof EnergyRules, value: number) => void;
 }
 
+type Unsub = () => void;
+let classroomUnsubs: Unsub[] = [];
+
 export const useStore = create<StoreState>()(
   persist(
     (set, get) => {
-      // 포인트가 오갈 때마다 원장에 한 줄 남기고, 시트가 연동돼 있으면 실시간으로도 보낸다.
+      // 포인트가 오갈 때마다 원장에 한 줄 남기고, 시트/Firestore가 연동돼 있으면 실시간으로도 보낸다.
       const logTransaction = (studentId: string, type: 'earn' | 'spend', amount: number, reason: string, balanceAfter: number) => {
         if (amount <= 0) return;
         const tx: EnergyTransaction = { id: uid(), timestamp: new Date().toISOString(), studentId, type, amount, reason, balanceAfter };
         set((state) => ({ energyTransactions: [tx, ...state.energyTransactions] }));
+        const code = get().classroomCode;
+        if (code) void addEnergyTransaction(code, tx);
         const webhookUrl = get().sheetsWebhookUrl;
         if (webhookUrl) {
           const student = get().students[studentId];
@@ -104,14 +141,75 @@ export const useStore = create<StoreState>()(
         }
       };
 
+      // 학생 한 명의 최신 상태를 다른 태블릿들과 실시간으로 맞추기 위해 Firestore에도 써둔다.
+      const syncStudent = (student: Student) => {
+        const code = get().classroomCode;
+        if (code) void writeStudent(code, student);
+      };
+
+      const syncShopItems = (shopItems: ShopItem[]) => {
+        const code = get().classroomCode;
+        if (code) void writeClassroomMeta(code, { shopItems });
+      };
+
+      const syncMeta = (updates: Partial<ClassroomMeta>) => {
+        const code = get().classroomCode;
+        if (code) void writeClassroomMeta(code, updates);
+      };
+
       return {
+      classroomCode: null,
+      classroomReady: false,
+      classroomValid: true,
+
+      initClassroom: (code) => {
+        classroomUnsubs.forEach((u) => u());
+        classroomUnsubs = [];
+        set({ classroomCode: code, classroomReady: false, classroomValid: true });
+        syncClassroomCodeToUrl(code);
+        classroomUnsubs.push(
+          subscribeClassroomMeta(code, (meta) => {
+            if (!meta) {
+              set({ classroomReady: true, classroomValid: false });
+              return;
+            }
+            set({
+              classroomReady: true,
+              classroomValid: true,
+              teacherPassword: meta.teacherPassword,
+              sheetsWebhookUrl: meta.sheetsWebhookUrl,
+              energyRules: meta.energyRules,
+              shopItems: meta.shopItems,
+            });
+          }),
+          subscribeStudents(code, (students) => set({ students })),
+          subscribeEnergyTransactions(code, (energyTransactions) => set({ energyTransactions })),
+          subscribePurchases(code, (purchases) => set({ purchases })),
+          subscribeJournalMeta(code, (journalMeta) => set({ journalMeta }))
+        );
+      },
+
+      createNewClassroom: async () => {
+        const defaults: ClassroomMeta = {
+          teacherPassword: '0000',
+          sheetsWebhookUrl: null,
+          energyRules: DEFAULT_ENERGY_RULES,
+          shopItems: DEFAULT_SHOP_ITEMS,
+          createdAt: new Date().toISOString(),
+        };
+        const code = await createClassroom(defaults);
+        get().initClassroom(code);
+        return code;
+      },
+
       students: {},
       currentStudentId: null,
       isTeacher: false,
       moodEntries: [],
       journalEntries: [],
+      journalMeta: [],
       purchases: [],
-      shopItems: [...SHOP_REWARD_ITEMS, ...EVOLUTION_STONES],
+      shopItems: DEFAULT_SHOP_ITEMS,
       energyRules: DEFAULT_ENERGY_RULES,
       collectEntries: [],
       energyTransactions: [],
@@ -136,6 +234,7 @@ export const useStore = create<StoreState>()(
           monsterMaxStage: { [speciesId]: 0 },
         };
         set({ students: { ...students, [id]: student }, currentStudentId: id });
+        syncStudent(student);
         return { ok: true, id };
       },
 
@@ -162,7 +261,9 @@ export const useStore = create<StoreState>()(
       setTeacherPassword: (currentPassword, newPassword) => {
         if (currentPassword !== get().teacherPassword) return { ok: false, error: '현재 비밀번호가 일치하지 않아요.' };
         if (!newPassword.trim() || newPassword.length < 4) return { ok: false, error: '새 비밀번호는 4자 이상으로 만들어주세요.' };
-        set({ teacherPassword: newPassword.trim() });
+        const trimmed = newPassword.trim();
+        set({ teacherPassword: trimmed });
+        syncMeta({ teacherPassword: trimmed });
         return { ok: true };
       },
 
@@ -170,7 +271,9 @@ export const useStore = create<StoreState>()(
         if (!/^[0-9]{4}$/.test(newPassword)) return { ok: false, error: '비밀번호는 숫자 4자리로 만들어주세요.' };
         const s = get().students[studentId];
         if (!s) return { ok: false, error: '학생 정보를 찾을 수 없어요.' };
-        set((state) => ({ students: { ...state.students, [studentId]: { ...s, password: newPassword } } }));
+        const updated = { ...s, password: newPassword };
+        set((state) => ({ students: { ...state.students, [studentId]: updated } }));
+        syncStudent(updated);
         return { ok: true };
       },
 
@@ -181,14 +284,19 @@ export const useStore = create<StoreState>()(
           return { students: { ...state.students, [studentId]: { ...s, points: s.points + amount } } };
         });
         const s = get().students[studentId];
-        if (s) logTransaction(studentId, 'earn', amount, reason ?? '기타 지급', s.points);
+        if (s) {
+          syncStudent(s);
+          logTransaction(studentId, 'earn', amount, reason ?? '기타 지급', s.points);
+        }
       },
 
       spendPoints: (studentId, amount, reason) => {
         const s = get().students[studentId];
         if (!s || s.points < amount) return false;
-        set((state) => ({ students: { ...state.students, [studentId]: { ...s, points: s.points - amount } } }));
-        logTransaction(studentId, 'spend', amount, reason ?? '기타 사용', s.points - amount);
+        const updated = { ...s, points: s.points - amount };
+        set((state) => ({ students: { ...state.students, [studentId]: updated } }));
+        syncStudent(updated);
+        logTransaction(studentId, 'spend', amount, reason ?? '기타 사용', updated.points);
         return true;
       },
 
@@ -198,17 +306,14 @@ export const useStore = create<StoreState>()(
           if (!s) return state;
           const prevMax = s.monsterMaxStage?.[s.speciesId] ?? s.stage;
           const nextMax = Math.max(prevMax, stage) as EvolutionStage;
-          return {
-            students: {
-              ...state.students,
-              [studentId]: {
-                ...s,
-                stage,
-                monsterProgress: { ...s.monsterProgress, [s.speciesId]: stage },
-                monsterMaxStage: { ...s.monsterMaxStage, [s.speciesId]: nextMax },
-              },
-            },
+          const updated: Student = {
+            ...s,
+            stage,
+            monsterProgress: { ...s.monsterProgress, [s.speciesId]: stage },
+            monsterMaxStage: { ...s.monsterMaxStage, [s.speciesId]: nextMax },
           };
+          syncStudent(updated);
+          return { students: { ...state.students, [studentId]: updated } };
         });
       },
 
@@ -231,23 +336,20 @@ export const useStore = create<StoreState>()(
           const curMax = savedMax[cur.speciesId] ?? cur.stage;
           savedMax[cur.speciesId] = Math.max(curMax, cur.stage) as EvolutionStage;
           if (savedMax[targetSpeciesId] === undefined) savedMax[targetSpeciesId] = 0;
-          return {
-            students: {
-              ...state.students,
-              [studentId]: {
-                ...cur,
-                points: cur.points - cost,
-                speciesId: targetSpeciesId,
-                stage: nextStage,
-                monsterProgress: { ...savedProgress, [targetSpeciesId]: nextStage },
-                monsterMaxStage: savedMax,
-              },
-            },
+          const updated: Student = {
+            ...cur,
+            points: cur.points - cost,
+            speciesId: targetSpeciesId,
+            stage: nextStage,
+            monsterProgress: { ...savedProgress, [targetSpeciesId]: nextStage },
+            monsterMaxStage: savedMax,
           };
+          return { students: { ...state.students, [studentId]: updated } };
         });
-        if (cost > 0) {
-          const after = get().students[studentId];
-          if (after) logTransaction(studentId, 'spend', cost, '도감 · 다른 알로 교체', after.points);
+        const after = get().students[studentId];
+        if (after) {
+          syncStudent(after);
+          if (cost > 0) logTransaction(studentId, 'spend', cost, '도감 · 다른 알로 교체', after.points);
         }
         return { ok: true };
       },
@@ -259,16 +361,13 @@ export const useStore = create<StoreState>()(
           const maxStage = s.monsterMaxStage?.[speciesId] ?? (s.speciesId === speciesId ? s.stage : s.monsterProgress?.[speciesId] ?? 0);
           if (stage > maxStage) return state; // 아직 도달하지 못한 단계는 선택할 수 없음
           const isActive = s.speciesId === speciesId;
-          return {
-            students: {
-              ...state.students,
-              [studentId]: {
-                ...s,
-                stage: isActive ? stage : s.stage,
-                monsterProgress: { ...s.monsterProgress, [speciesId]: stage },
-              },
-            },
+          const updated: Student = {
+            ...s,
+            stage: isActive ? stage : s.stage,
+            monsterProgress: { ...s.monsterProgress, [speciesId]: stage },
           };
+          syncStudent(updated);
+          return { students: { ...state.students, [studentId]: updated } };
         });
       },
 
@@ -280,10 +379,13 @@ export const useStore = create<StoreState>()(
           const trimmed = nickname.trim();
           if (trimmed) nicknames[speciesId] = trimmed;
           else delete nicknames[speciesId];
-          return { students: { ...state.students, [studentId]: { ...s, monsterNicknames: nicknames } } };
+          const updated = { ...s, monsterNicknames: nicknames };
+          syncStudent(updated);
+          return { students: { ...state.students, [studentId]: updated } };
         });
       },
 
+      // 감정 구역 체크인은 개인정보 보호를 위해 Firestore에 저장하지 않는다 (기기 로컬 + 구글 시트로만 전송).
       addMoodEntry: (entry) => {
         const newEntry: MoodEntry = { ...entry, id: uid(), timestamp: new Date().toISOString() };
         set((state) => ({ moodEntries: [newEntry, ...state.moodEntries] }));
@@ -333,6 +435,18 @@ export const useStore = create<StoreState>()(
           speciesId: student?.speciesId ?? '',
         };
         set((state) => ({ journalEntries: [newEntry, ...state.journalEntries] }));
+        // 카테고리·서술형 내용은 여기서 끝 — 구글 시트로만 전송하고, Firestore(교실 공유)엔 낱말·온도만 남긴다.
+        const meta: JournalMeta = {
+          id: newEntry.id,
+          timestamp: newEntry.timestamp,
+          studentId: newEntry.studentId,
+          speciesId: newEntry.speciesId,
+          word: newEntry.word,
+          thermometer: newEntry.thermometer,
+        };
+        set((state) => ({ journalMeta: [meta, ...state.journalMeta] }));
+        const code = get().classroomCode;
+        if (code) void addJournalMeta(code, meta);
         const webhookUrl = get().sheetsWebhookUrl;
         if (webhookUrl) {
           pushRowToSheet(webhookUrl, '학생들의 감정일지', {
@@ -347,6 +461,7 @@ export const useStore = create<StoreState>()(
         return { ok: true };
       },
 
+      // 상황별 반응의 자유 서술도 Firestore엔 저장하지 않고, 기기 로컬(오늘 완료 여부 확인용) + 구글 시트로만 보낸다.
       addCollectEntry: (entry) => {
         if (hasCollectToday(entry.studentId, get().collectEntries)) {
           return { ok: false, error: '오늘은 이미 감정 에너지를 수집했어요. 내일 다시 해볼까요?' };
@@ -359,10 +474,26 @@ export const useStore = create<StoreState>()(
           speciesId: student?.speciesId ?? '',
         };
         set((state) => ({ collectEntries: [newEntry, ...state.collectEntries] }));
+        const webhookUrl = get().sheetsWebhookUrl;
+        if (webhookUrl) {
+          newEntry.responses.forEach((r) => {
+            pushRowToSheet(webhookUrl, '학생들의 상황별 반응', {
+              Timestamp: newEntry.timestamp,
+              Student_Name: student?.name ?? '',
+              Vocab_Words: newEntry.vocabWords.join(', '),
+              Prompt: r.prompt,
+              Picks: r.picks.join(', '),
+              Expression: r.expression,
+            });
+          });
+        }
         return { ok: true };
       },
 
-      setSheetsWebhookUrl: (url) => set({ sheetsWebhookUrl: url }),
+      setSheetsWebhookUrl: (url) => {
+        set({ sheetsWebhookUrl: url });
+        syncMeta({ sheetsWebhookUrl: url });
+      },
 
       canUseTool: (studentId, toolId) => {
         const s = get().students[studentId];
@@ -376,12 +507,9 @@ export const useStore = create<StoreState>()(
         set((state) => {
           const s = state.students[studentId];
           if (!s) return state;
-          return {
-            students: {
-              ...state.students,
-              [studentId]: { ...s, lastToolUse: { ...(s.lastToolUse || {}), [toolId]: new Date().toISOString() } },
-            },
-          };
+          const updated = { ...s, lastToolUse: { ...(s.lastToolUse || {}), [toolId]: new Date().toISOString() } };
+          syncStudent(updated);
+          return { students: { ...state.students, [studentId]: updated } };
         });
         if (canReward) {
           const reward = get().energyRules.regulationTool;
@@ -407,10 +535,12 @@ export const useStore = create<StoreState>()(
           cost: current.cost,
         };
         set((state) => ({ purchases: [record, ...state.purchases] }));
+        const code = get().classroomCode;
+        if (code) void addPurchase(code, record);
         if (current.stock !== undefined) {
-          set((state) => ({
-            shopItems: state.shopItems.map((i) => (i.id === current.id ? { ...i, stock: Math.max(0, (i.stock ?? 0) - 1) } : i)),
-          }));
+          const nextItems = get().shopItems.map((i) => (i.id === current.id ? { ...i, stock: Math.max(0, (i.stock ?? 0) - 1) } : i));
+          set({ shopItems: nextItems });
+          syncShopItems(nextItems);
         }
         if (current.type === 'stone' && current.stage !== undefined) {
           get().evolveStudent(studentId, current.stage);
@@ -427,18 +557,31 @@ export const useStore = create<StoreState>()(
         });
         const after = get().students[studentId];
         if (after && delta !== 0) {
+          syncStudent(after);
           logTransaction(studentId, delta > 0 ? 'earn' : 'spend', Math.abs(delta), reason || (delta > 0 ? '교사 수동 지급' : '교사 수동 차감'), after.points);
         }
       },
 
-      addShopItem: (item) => set((state) => ({ shopItems: [...state.shopItems, item] })),
-      removeShopItem: (itemId) => set((state) => ({ shopItems: state.shopItems.filter((i) => i.id !== itemId) })),
-      updateShopItem: (itemId, updates) =>
-        set((state) => ({
-          shopItems: state.shopItems.map((i) => (i.id === itemId ? { ...i, ...updates } : i)),
-        })),
-      setEnergyRule: (key, value) =>
-        set((state) => ({ energyRules: { ...state.energyRules, [key]: Math.max(0, value) } })),
+      addShopItem: (item) => {
+        const next = [...get().shopItems, item];
+        set({ shopItems: next });
+        syncShopItems(next);
+      },
+      removeShopItem: (itemId) => {
+        const next = get().shopItems.filter((i) => i.id !== itemId);
+        set({ shopItems: next });
+        syncShopItems(next);
+      },
+      updateShopItem: (itemId, updates) => {
+        const next = get().shopItems.map((i) => (i.id === itemId ? { ...i, ...updates } : i));
+        set({ shopItems: next });
+        syncShopItems(next);
+      },
+      setEnergyRule: (key, value) => {
+        const next = { ...get().energyRules, [key]: Math.max(0, value) };
+        set({ energyRules: next });
+        syncMeta({ energyRules: next });
+      },
       };
     },
     { name: 'emonster-store-v1' }

@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageShell from '../components/PageShell';
 import { EVOLUTION_STAGE_LABELS, MONSTER_SPECIES } from '../data/monsters';
-import { ZONE_SCORE, ZONES } from '../data/zones';
+import { ZONE_SCORE } from '../data/zones';
 import { SHEETS_APPS_SCRIPT_CODE } from '../lib/sheetsSync';
-import { ENERGY_RULE_LABELS, useStore, zoneRedCountToday, type EnergyRules } from '../store/useStore';
+import { ENERGY_RULE_LABELS, useStore, type EnergyRules } from '../store/useStore';
 import type { ShopItem } from '../types';
 
 function csvEscape(value: string | number): string {
@@ -15,10 +15,6 @@ function csvEscape(value: string | number): string {
 
 function toCsv(headers: string[], rows: (string | number)[][]): string {
   return [headers.map(csvEscape).join(','), ...rows.map((r) => r.map(csvEscape).join(','))].join('\n');
-}
-
-function timeStr(iso: string) {
-  return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 }
 
 function CsvBlock({ label, csv, onCopy }: { label: string; csv: string; onCopy: (text: string) => void }) {
@@ -81,6 +77,7 @@ function buildAverageCsv<T>(
 
 export default function Admin() {
   const navigate = useNavigate();
+  const classroomCode = useStore((s) => s.classroomCode);
   const students = useStore((s) => s.students);
   const moodEntries = useStore((s) => s.moodEntries);
   const journalEntries = useStore((s) => s.journalEntries);
@@ -88,7 +85,6 @@ export default function Admin() {
   const shopItems = useStore((s) => s.shopItems);
   const teacherLogout = useStore((s) => s.teacherLogout);
   const teacherAdjustPoints = useStore((s) => s.teacherAdjustPoints);
-  const resolveSOS = useStore((s) => s.resolveSOS);
   const addShopItem = useStore((s) => s.addShopItem);
   const removeShopItem = useStore((s) => s.removeShopItem);
   const updateShopItem = useStore((s) => s.updateShopItem);
@@ -117,33 +113,11 @@ export default function Admin() {
   const [journalWeeklyCsv, setJournalWeeklyCsv] = useState<string | null>(null);
   const [journalMonthlyCsv, setJournalMonthlyCsv] = useState<string | null>(null);
   const [energyCsv, setEnergyCsv] = useState<string | null>(null);
-  const [timelineFilter, setTimelineFilter] = useState<Set<string>>(new Set());
+  const [codeCopied, setCodeCopied] = useState(false);
 
-  const studentList = Object.values(students);
+  const studentList = [...Object.values(students)].sort((a, b) => a.name.localeCompare(b.name));
   const studentName = (id: string) => students[id]?.name ?? '알 수 없음';
-
-  const isCrisis = (id: string) => {
-    const redCount = zoneRedCountToday(id, moodEntries);
-    const pendingSOS = moodEntries.some((e) => e.studentId === id && e.helpRequested && !e.resolved);
-    return redCount >= 2 || pendingSOS;
-  };
-
-  const sortedStudents = [...studentList].sort((a, b) => Number(isCrisis(b.id)) - Number(isCrisis(a.id)));
-
-  const toggleTimelineFilter = (id: string) => {
-    setTimelineFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const timeline = useMemo(() => {
-    const sorted = [...moodEntries].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp));
-    const filtered = timelineFilter.size > 0 ? sorted.filter((e) => timelineFilter.has(e.studentId)) : sorted;
-    return filtered.slice(0, 30);
-  }, [moodEntries, timelineFilter]);
+  const shareLink = classroomCode ? `${window.location.origin}${window.location.pathname}?c=${classroomCode}` : '';
 
   const handleLogout = () => {
     teacherLogout();
@@ -209,6 +183,12 @@ export default function Admin() {
     } catch {
       // 클립보드 권한이 없으면 아래 텍스트 상자에서 직접 선택해 복사하면 돼요.
     }
+  };
+
+  const handleCopyClassroomLink = async () => {
+    await handleCopy(shareLink);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 1500);
   };
 
   const buildMoodCsv = () => {
@@ -277,7 +257,7 @@ export default function Admin() {
   };
 
   return (
-    <PageShell title="교사 관리 탭" subtitle="오늘의 감정 체크인 현황" onBack={handleLogout} wide>
+    <PageShell title="교사 관리 탭" subtitle={classroomCode ? `교실 코드 ${classroomCode}` : undefined} onBack={handleLogout} wide>
       <div className="flex bg-white rounded-full p-1 shadow mb-4">
         <button onClick={() => setTab('status')} className={`flex-1 py-2 rounded-full font-bold text-sm transition ${tab === 'status' ? 'bg-brand-700 text-white' : 'text-brand-700'}`}>
           👩‍🏫 학생 현황
@@ -302,24 +282,15 @@ export default function Admin() {
             <h2 className="font-bold text-brand-900 mb-2">학생 목록 ({studentList.length}명)</h2>
             {studentList.length === 0 && <p className="text-sm text-brand-600 bg-white rounded-xl p-4 shadow-sm">아직 등록된 학생이 없어요. 학생이 온보딩을 완료하면 여기에 표시돼요.</p>}
             <div className="space-y-3">
-              {sortedStudents.map((st) => {
-                const crisis = isCrisis(st.id);
+              {studentList.map((st) => {
                 const species = MONSTER_SPECIES.find((sp) => sp.id === st.speciesId);
-                const pendingSOS = moodEntries.filter((e) => e.studentId === st.id && e.helpRequested && !e.resolved);
-                const redCount = zoneRedCountToday(st.id, moodEntries);
                 return (
-                  <div
-                    key={st.id}
-                    className={`rounded-2xl bg-white shadow p-4 ${crisis ? 'border-2 border-zone-red animate-pulse-ring' : 'border border-transparent'}`}
-                  >
+                  <div key={st.id} className="rounded-2xl bg-white shadow p-4">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div>
-                        <p className="font-bold text-brand-900">
-                          {st.name}
-                          {crisis && <span className="ml-2 text-xs bg-zone-red text-white px-2 py-0.5 rounded-full align-middle">위기 학생</span>}
-                        </p>
+                        <p className="font-bold text-brand-900">{st.name}</p>
                         <p className="text-xs text-brand-600">
-                          {species?.name} · {EVOLUTION_STAGE_LABELS[st.stage]} · ⚡{st.points}pt · 오늘 빨강 {redCount}회
+                          {species?.name} · {EVOLUTION_STAGE_LABELS[st.stage]} · ⚡{st.points}pt
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
@@ -343,75 +314,17 @@ export default function Admin() {
                         </button>
                       </div>
                     </div>
-                    {pendingSOS.length > 0 && (
-                      <div className="mt-2 bg-zone-red-bg rounded-xl p-2 flex items-center justify-between">
-                        <p className="text-xs font-bold text-zone-red">🆘 도움 요청 {pendingSOS.length}건 대기 중</p>
-                        <button
-                          onClick={() => pendingSOS.forEach((e) => resolveSOS(e.id))}
-                          className="text-xs px-2 py-1 rounded-lg bg-zone-red text-white font-bold"
-                        >
-                          확인 완료
-                        </button>
-                      </div>
-                    )}
                   </div>
                 );
               })}
             </div>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="font-bold text-brand-900">오늘의 감정 체크인 타임라인</h2>
-              {timelineFilter.size > 0 && (
-                <button onClick={() => setTimelineFilter(new Set())} className="text-xs text-brand-600 underline underline-offset-2">
-                  필터 초기화 ({timelineFilter.size}명 선택됨)
-                </button>
-              )}
-            </div>
-            {studentList.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {studentList.map((st) => {
-                  const active = timelineFilter.has(st.id);
-                  return (
-                    <button
-                      key={st.id}
-                      onClick={() => toggleTimelineFilter(st.id)}
-                      className={`px-2.5 py-1 rounded-full text-xs font-bold border-2 transition ${
-                        active ? 'border-brand-500 bg-brand-500 text-white' : 'border-brand-200 bg-white text-brand-700'
-                      }`}
-                    >
-                      {active && '✓ '}
-                      {st.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <div className="bg-white rounded-2xl shadow divide-y divide-brand-50">
-              {timeline.length === 0 && (
-                <p className="text-sm text-brand-600 p-4">{timelineFilter.size > 0 ? '선택한 학생의 체크인 기록이 없어요.' : '아직 체크인 기록이 없어요.'}</p>
-              )}
-              {timeline.map((e) => {
-                const st = students[e.studentId];
-                const zone = ZONES[e.colorZone];
-                return (
-                  <div key={e.id} className="p-3 flex items-center gap-3">
-                    <span className="text-xs text-brand-400 w-12 shrink-0">{timeStr(e.timestamp)}</span>
-                    <span className="text-2xl">{e.emoji}</span>
-                    <div className="flex-1">
-                      <p className="text-sm font-bold text-brand-900">
-                        {st?.name || '알 수 없음'} · <span className={zone.text}>{e.label}</span>
-                      </p>
-                      <p className="text-xs text-brand-500">
-                        {e.usedTool ? `도구 사용: ${e.usedTool}` : '도구 미사용'}
-                        {e.helpRequested && <span className="ml-2 text-zone-red font-bold">SOS {e.resolved ? '(해결됨)' : '(대기중)'}</span>}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          <div className="bg-white rounded-2xl shadow p-4">
+            <h2 className="font-bold text-brand-900 mb-1">감정 체크인 기록</h2>
+            <p className="text-sm text-brand-600">
+              개인정보 보호를 위해 감정 체크인은 이 앱에 실시간으로 모아 보여주지 않아요. 대신 학생이 체크인할 때마다 구글 시트에 자동으로 기록되니, "🔗 데이터 연동" 탭에서 연결해서 확인해주세요.
+            </p>
           </div>
         </div>
       )}
@@ -691,6 +604,19 @@ export default function Admin() {
 
       {tab === 'accounts' && (
         <div className="space-y-4">
+          <div className="bg-white rounded-2xl shadow p-4">
+            <h2 className="font-bold text-brand-900 mb-1">🏫 교실 코드</h2>
+            <p className="text-sm text-brand-600 mb-3">
+              이 코드나 링크를 학생들의 태블릿, 그리고 함께 쓰실 다른 선생님께 공유하면 같은 교실 데이터를 실시간으로 함께 볼 수 있어요.
+            </p>
+            <div className="bg-brand-50 rounded-xl p-3">
+              <p className="text-2xl font-extrabold tracking-[0.3em] text-brand-900 text-center">{classroomCode}</p>
+            </div>
+            <button onClick={handleCopyClassroomLink} className="mt-2 w-full px-3 py-2 rounded-lg bg-brand-500 text-white text-sm font-bold">
+              {codeCopied ? '복사됐어요! ✅' : '📋 공유 링크 복사하기'}
+            </button>
+          </div>
+
           <div className="bg-white rounded-2xl shadow p-4">
             <h2 className="font-bold text-brand-900 mb-1">교사 비밀번호 변경</h2>
             <p className="text-sm text-brand-600 mb-3">관리자 모드에 들어올 때 쓰는 비밀번호예요. 기본값은 0000이에요.</p>
