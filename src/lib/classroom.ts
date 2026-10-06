@@ -5,13 +5,17 @@
 // 이 파일을 통해 Firestore에 저장하지 않는다 (구글 시트로만 전송됨 — sheetsSync.ts 참고).
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
+  getDocs,
   limit as fsLimit,
   onSnapshot,
   orderBy,
   query,
   setDoc,
+  where,
+  writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -138,4 +142,25 @@ export function subscribeJournalMeta(code: string, cb: (entries: JournalMeta[]) 
 
 export function addJournalMeta(code: string, meta: JournalMeta) {
   return setDoc(doc(db, 'classrooms', code, 'journalMeta', meta.id), sanitize(meta));
+}
+
+/**
+ * 학생 한 명과 그 학생의 기록(에너지 내역·구매 내역·일지 요약)을 Firestore에서 지운다.
+ * 학생 문서를 먼저 지워서 모든 태블릿에서 바로 사라지게 하고, 기록 정리는 그 뒤에 이어서 한다.
+ */
+export async function deleteStudentData(code: string, studentId: string) {
+  await deleteDoc(doc(db, 'classrooms', code, 'students', studentId));
+  for (const name of ['energyTransactions', 'purchases', 'journalMeta']) {
+    try {
+      const snap = await getDocs(query(collection(db, 'classrooms', code, name), where('studentId', '==', studentId)));
+      // 한 번에 지울 수 있는 개수 제한(500개)이 있어서 400개씩 나눠서 지운다
+      for (let i = 0; i < snap.docs.length; i += 400) {
+        const batch = writeBatch(db);
+        snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+    } catch (err) {
+      console.error(`학생 기록(${name}) 정리에 실패했어요`, err);
+    }
+  }
 }
