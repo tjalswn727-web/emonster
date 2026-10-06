@@ -17,7 +17,20 @@ import Monsterdex from './scenes/Monsterdex';
 
 function RequireStudent({ children }: { children: React.ReactNode }) {
   const currentStudentId = useStore((s) => s.currentStudentId);
+  const studentExists = useStore((s) => (s.currentStudentId ? Boolean(s.students[s.currentStudentId]) : false));
+  const logout = useStore((s) => s.logout);
   if (!currentStudentId) return <Navigate to="/" replace />;
+  if (!studentExists) {
+    // 선생님이 이 학생 계정을 삭제한 경우 — 빈 화면 대신 안내를 보여준다
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center gap-4">
+        <p className="text-brand-700 font-bold">이 사원증은 선생님이 삭제했어요. 처음 화면에서 다시 시작해주세요.</p>
+        <button onClick={logout} className="px-4 py-2 rounded-xl bg-brand-500 text-white font-bold text-sm shadow">
+          처음으로
+        </button>
+      </div>
+    );
+  }
   return <>{children}</>;
 }
 
