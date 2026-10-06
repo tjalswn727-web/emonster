@@ -9,6 +9,7 @@ import {
   addJournalMeta,
   addPurchase,
   createClassroom,
+  deleteStudentData,
   subscribeClassroomMeta,
   subscribeEnergyTransactions,
   subscribeJournalMeta,
@@ -108,9 +109,11 @@ interface StoreState {
   purchaseItem: (studentId: string, item: ShopItem) => { ok: boolean; error?: string };
 
   teacherAdjustPoints: (studentId: string, delta: number, reason: string) => void;
+  /** 학생 계정과 그 학생의 기록을 모두 삭제한다 (되돌릴 수 없음) */
+  deleteStudent: (studentId: string) => void;
   addShopItem: (item: ShopItem) => void;
   removeShopItem: (itemId: string) => void;
-  updateShopItem: (itemId: string, updates: Partial<Pick<ShopItem, 'cost' | 'stock'>>) => void;
+  updateShopItem: (itemId: string, updates: Partial<Pick<ShopItem, 'name' | 'description' | 'icon' | 'imageUrl' | 'cost' | 'stock'>>) => void;
   setEnergyRule: (key: keyof EnergyRules, value: number) => void;
 }
 
@@ -560,6 +563,26 @@ export const useStore = create<StoreState>()(
           syncStudent(after);
           logTransaction(studentId, delta > 0 ? 'earn' : 'spend', Math.abs(delta), reason || (delta > 0 ? '교사 수동 지급' : '교사 수동 차감'), after.points);
         }
+      },
+
+      deleteStudent: (studentId) => {
+        set((state) => {
+          const students = { ...state.students };
+          delete students[studentId];
+          const notThisStudent = <T extends { studentId: string }>(entry: T) => entry.studentId !== studentId;
+          return {
+            students,
+            currentStudentId: state.currentStudentId === studentId ? null : state.currentStudentId,
+            moodEntries: state.moodEntries.filter(notThisStudent),
+            journalEntries: state.journalEntries.filter(notThisStudent),
+            journalMeta: state.journalMeta.filter(notThisStudent),
+            collectEntries: state.collectEntries.filter(notThisStudent),
+            purchases: state.purchases.filter(notThisStudent),
+            energyTransactions: state.energyTransactions.filter(notThisStudent),
+          };
+        });
+        const code = get().classroomCode;
+        if (code) void deleteStudentData(code, studentId);
       },
 
       addShopItem: (item) => {
