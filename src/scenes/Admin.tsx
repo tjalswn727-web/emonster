@@ -7,6 +7,24 @@ import { SHEETS_APPS_SCRIPT_CODE } from '../lib/sheetsSync';
 import { ENERGY_RULE_LABELS, useStore, type EnergyRules } from '../store/useStore';
 import type { ShopItem } from '../types';
 
+interface ItemDraft {
+  name: string;
+  description: string;
+  icon: string;
+  imageUrl: string;
+  cost: number;
+  stock: string;
+}
+
+const itemToDraft = (item: ShopItem): ItemDraft => ({
+  name: item.name,
+  description: item.description,
+  icon: item.icon,
+  imageUrl: item.imageUrl ?? '',
+  cost: item.cost,
+  stock: item.stock !== undefined ? String(item.stock) : '',
+});
+
 function csvEscape(value: string | number): string {
   const str = String(value);
   if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
@@ -88,6 +106,7 @@ export default function Admin() {
   const addShopItem = useStore((s) => s.addShopItem);
   const removeShopItem = useStore((s) => s.removeShopItem);
   const updateShopItem = useStore((s) => s.updateShopItem);
+  const deleteStudent = useStore((s) => s.deleteStudent);
   const energyRules = useStore((s) => s.energyRules);
   const setEnergyRule = useStore((s) => s.setEnergyRule);
   const sheetsWebhookUrl = useStore((s) => s.sheetsWebhookUrl);
@@ -98,7 +117,10 @@ export default function Admin() {
   const [tab, setTab] = useState<'status' | 'shop' | 'energy' | 'sync' | 'accounts'>('status');
   const [amounts, setAmounts] = useState<Record<string, number>>({});
   const [newItem, setNewItem] = useState({ name: '', description: '', cost: 20, icon: '🎁', imageUrl: '', stock: '' });
-  const [itemDrafts, setItemDrafts] = useState<Record<string, { cost: number; stock: string }>>({});
+  const [itemDrafts, setItemDrafts] = useState<Record<string, ItemDraft>>({});
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [stoneDrafts, setStoneDrafts] = useState<Record<string, number>>({});
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [ruleDrafts, setRuleDrafts] = useState<Partial<Record<keyof EnergyRules, number>>>({});
   const [pwCurrent, setPwCurrent] = useState('');
   const [pwNew, setPwNew] = useState('');
@@ -116,6 +138,7 @@ export default function Admin() {
   const [codeCopied, setCodeCopied] = useState(false);
 
   const studentList = [...Object.values(students)].sort((a, b) => a.name.localeCompare(b.name));
+  const stoneItems = shopItems.filter((i) => i.type === 'stone').sort((a, b) => (a.stage ?? 0) - (b.stage ?? 0));
   const studentName = (id: string) => students[id]?.name ?? '알 수 없음';
   const shareLink = classroomCode ? `${window.location.origin}${window.location.pathname}?c=${classroomCode}` : '';
 
@@ -141,16 +164,37 @@ export default function Admin() {
     setNewItem({ name: '', description: '', cost: 20, icon: '🎁', imageUrl: '', stock: '' });
   };
 
-  const getItemDraft = (item: ShopItem) => itemDrafts[item.id] ?? { cost: item.cost, stock: item.stock !== undefined ? String(item.stock) : '' };
+  const getItemDraft = (item: ShopItem): ItemDraft => itemDrafts[item.id] ?? itemToDraft(item);
+
+  const isItemDirty = (item: ShopItem, draft: ItemDraft) => {
+    const base = itemToDraft(item);
+    return (Object.keys(base) as (keyof ItemDraft)[]).some((k) => base[k] !== draft[k]);
+  };
 
   const handleSaveItem = (item: ShopItem) => {
     const draft = getItemDraft(item);
+    if (!draft.name.trim()) return;
     const stockTrimmed = draft.stock.trim();
     updateShopItem(item.id, {
+      name: draft.name.trim(),
+      description: draft.description.trim(),
+      icon: draft.icon || '🎁',
+      imageUrl: draft.imageUrl.trim() || undefined,
       cost: Math.max(0, draft.cost),
       stock: stockTrimmed === '' ? undefined : Math.max(0, Number(stockTrimmed)),
     });
     setItemDrafts((d) => {
+      const next = { ...d };
+      delete next[item.id];
+      return next;
+    });
+    setEditingItemId(null);
+  };
+
+  const handleSaveStoneCost = (item: ShopItem) => {
+    const value = stoneDrafts[item.id] ?? item.cost;
+    updateShopItem(item.id, { cost: Math.max(0, Math.round(value) || 0) });
+    setStoneDrafts((d) => {
       const next = { ...d };
       delete next[item.id];
       return next;
@@ -314,6 +358,29 @@ export default function Admin() {
                         </button>
                       </div>
                     </div>
+                    <div className="mt-2 flex justify-end items-center gap-2 flex-wrap">
+                      {deleteConfirmId === st.id ? (
+                        <>
+                          <span className="text-xs text-zone-red font-bold">이 학생의 기록도 함께 삭제돼요. 되돌릴 수 없어요.</span>
+                          <button
+                            onClick={() => {
+                              deleteStudent(st.id);
+                              setDeleteConfirmId(null);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-zone-red text-white text-sm font-bold"
+                          >
+                            정말 삭제
+                          </button>
+                          <button onClick={() => setDeleteConfirmId(null)} className="px-2 py-1 rounded-lg bg-white border border-brand-300 text-brand-700 text-sm font-bold">
+                            취소
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => setDeleteConfirmId(st.id)} className="px-2 py-1 rounded-lg bg-red-50 text-red-500 text-xs font-bold">
+                          학생 삭제
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -388,7 +455,9 @@ export default function Admin() {
               .map((item) => {
                 const draft = getItemDraft(item);
                 const soldOut = item.stock !== undefined && item.stock <= 0;
-                const dirty = draft.cost !== item.cost || draft.stock !== (item.stock !== undefined ? String(item.stock) : '');
+                const dirty = isItemDirty(item, draft);
+                const editing = editingItemId === item.id;
+                const setDraftField = (patch: Partial<ItemDraft>) => setItemDrafts((d) => ({ ...d, [item.id]: { ...draft, ...patch } }));
                 return (
                   <div key={item.id} className="p-3">
                     <div className="flex items-center gap-3">
@@ -404,10 +473,57 @@ export default function Admin() {
                         </p>
                         <p className="text-xs text-brand-600 truncate">{item.description}</p>
                       </div>
+                      <button
+                        onClick={() => {
+                          if (editing) {
+                            setEditingItemId(null);
+                            setItemDrafts((d) => {
+                              const next = { ...d };
+                              delete next[item.id];
+                              return next;
+                            });
+                          } else {
+                            setEditingItemId(item.id);
+                          }
+                        }}
+                        className="text-xs px-2 py-1 rounded-lg bg-brand-100 text-brand-700 font-bold shrink-0"
+                      >
+                        {editing ? '닫기' : '수정'}
+                      </button>
                       <button onClick={() => removeShopItem(item.id)} className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-500 font-bold shrink-0">
                         삭제
                       </button>
                     </div>
+                    {editing && (
+                      <div className="mt-2 pl-[52px] space-y-2">
+                        <div className="grid grid-cols-4 gap-2">
+                          <input
+                            value={draft.icon}
+                            onChange={(e) => setDraftField({ icon: e.target.value })}
+                            className="col-span-1 rounded-lg border border-brand-200 px-2 py-1.5 text-center"
+                            placeholder="🎁"
+                          />
+                          <input
+                            value={draft.name}
+                            onChange={(e) => setDraftField({ name: e.target.value })}
+                            className="col-span-3 rounded-lg border border-brand-200 px-2 py-1.5 text-sm"
+                            placeholder="상품 이름"
+                          />
+                        </div>
+                        <input
+                          value={draft.description}
+                          onChange={(e) => setDraftField({ description: e.target.value })}
+                          className="w-full rounded-lg border border-brand-200 px-2 py-1.5 text-sm"
+                          placeholder="상품 설명"
+                        />
+                        <input
+                          value={draft.imageUrl}
+                          onChange={(e) => setDraftField({ imageUrl: e.target.value })}
+                          className="w-full rounded-lg border border-brand-200 px-2 py-1.5 text-sm"
+                          placeholder="이미지 URL (선택 · 비워두면 이모지 아이콘 사용)"
+                        />
+                      </div>
+                    )}
                     <div className="mt-2 flex items-center gap-2 flex-wrap pl-[52px]">
                       <span className="text-xs text-brand-600">가격</span>
                       <div className="flex items-center gap-1">
@@ -416,7 +532,7 @@ export default function Admin() {
                           type="number"
                           min={0}
                           value={draft.cost}
-                          onChange={(e) => setItemDrafts((d) => ({ ...d, [item.id]: { ...draft, cost: Number(e.target.value) } }))}
+                          onChange={(e) => setDraftField({ cost: Number(e.target.value) })}
                           className="w-20 rounded-lg border border-brand-200 px-2 py-1 text-sm"
                         />
                       </div>
@@ -426,12 +542,12 @@ export default function Admin() {
                         min={0}
                         value={draft.stock}
                         placeholder="무제한"
-                        onChange={(e) => setItemDrafts((d) => ({ ...d, [item.id]: { ...draft, stock: e.target.value } }))}
+                        onChange={(e) => setDraftField({ stock: e.target.value })}
                         className="w-24 rounded-lg border border-brand-200 px-2 py-1 text-sm"
                       />
                       <button
                         onClick={() => handleSaveItem(item)}
-                        disabled={!dirty}
+                        disabled={!dirty || !draft.name.trim()}
                         className="ml-auto px-3 py-1.5 rounded-lg bg-brand-500 text-white text-xs font-bold disabled:opacity-30"
                       >
                         저장
@@ -490,6 +606,45 @@ export default function Admin() {
               );
             })}
           </div>
+
+          {stoneItems.length > 0 && (
+            <div className="bg-white rounded-2xl shadow divide-y divide-brand-50">
+              <div className="p-4">
+                <p className="font-bold text-brand-900 text-sm">💎 진화의 돌 가격</p>
+                <p className="text-xs text-brand-600">단계별 진화에 필요한 감정 에너지를 조정할 수 있어요. 저장 즉시 매점에 반영돼요.</p>
+              </div>
+              {stoneItems.map((item) => {
+                const draft = stoneDrafts[item.id] ?? item.cost;
+                return (
+                  <div key={item.id} className="p-4 flex items-center gap-3">
+                    <div className="flex-1">
+                      <p className="font-bold text-brand-900 text-sm">
+                        {item.stage}단계 진화{item.stage !== undefined ? ` → ${EVOLUTION_STAGE_LABELS[item.stage]}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-brand-500 text-sm">⚡</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={draft}
+                        onChange={(e) => setStoneDrafts((d) => ({ ...d, [item.id]: Number(e.target.value) }))}
+                        className="w-16 rounded-lg border border-brand-200 px-2 py-1 text-sm"
+                      />
+                      <span className="text-brand-500 text-sm">pt</span>
+                      <button
+                        onClick={() => handleSaveStoneCost(item)}
+                        disabled={draft === item.cost}
+                        className="ml-1 px-2 py-1 rounded-lg bg-brand-500 text-white text-sm font-bold disabled:opacity-30"
+                      >
+                        저장
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
