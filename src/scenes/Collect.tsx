@@ -2,12 +2,25 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageShell from '../components/PageShell';
 import Toast from '../components/Toast';
-import { DAILY_VOCAB_POOL, SITUATION_PROMPTS, SITUATION_RESPONSE_WORDS } from '../data/emotionWords';
+import { DAILY_VOCAB_POOL, SITUATION_PROMPTS } from '../data/emotionWords';
 import { useCurrentStudent } from '../store/hooks';
 import { hasCollectToday, todayCollectEntry, useStore } from '../store/useStore';
 
+/** 하루에 만나는 어휘 매칭 낱말 수 */
+const WORDS_PER_DAY = 3;
+/** 상황 글쓰기에서 제출하려면 최소로 써야 하는 글자 수 */
+const MIN_WRITING_LENGTH = 10;
+
 function shuffle<T>(arr: T[]): T[] {
   return [...arr].sort(() => Math.random() - 0.5);
+}
+
+/** 학생이 아직 만나지 않은 항목을 먼저 뽑는다. 모두 만났다면 이미 만난 항목에서 다시 뽑는다. */
+function pickFresh<T>(pool: T[], seen: Set<string>, keyOf: (item: T) => string, count: number): T[] {
+  const fresh = shuffle(pool.filter((item) => !seen.has(keyOf(item))));
+  if (fresh.length >= count) return fresh.slice(0, count);
+  const used = shuffle(pool.filter((item) => seen.has(keyOf(item))));
+  return [...fresh, ...used].slice(0, count);
 }
 
 export default function Collect() {
@@ -18,14 +31,21 @@ export default function Collect() {
   const addCollectEntry = useStore((s) => s.addCollectEntry);
   const energyRules = useStore((s) => s.energyRules);
 
-  const words = useMemo(() => shuffle(DAILY_VOCAB_POOL).slice(0, 4), []);
-  const prompts = useMemo(() => shuffle(SITUATION_PROMPTS).slice(0, 2), []);
-  const responseWords = useMemo(() => shuffle(SITUATION_RESPONSE_WORDS), []);
+  // 이 학생이 지금까지 만난 낱말·상황 (아직 안 만난 것을 먼저 보여주기 위함)
+  const [words] = useState(() => {
+    const mine = student ? collectEntries.filter((e) => e.studentId === student.id) : [];
+    const seen = new Set(mine.flatMap((e) => e.vocabWords));
+    return pickFresh(DAILY_VOCAB_POOL, seen, (w) => w.word, WORDS_PER_DAY);
+  });
+  const [prompt] = useState(() => {
+    const mine = student ? collectEntries.filter((e) => e.studentId === student.id) : [];
+    const seen = new Set(mine.flatMap((e) => e.responses.map((r) => r.prompt)));
+    return pickFresh(SITUATION_PROMPTS, seen, (p) => p, 1)[0];
+  });
 
   const [phase, setPhase] = useState<'match' | 'situation' | 'done'>('match');
   const [idx, setIdx] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
-  const [currentPicks, setCurrentPicks] = useState<string[]>([]);
   const [expression, setExpression] = useState('');
   const [responses, setResponses] = useState<{ prompt: string; picks: string[]; expression: string }[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -59,34 +79,27 @@ export default function Collect() {
     }, 700);
   };
 
-  const togglePick = (word: string) => {
-    setCurrentPicks((picks) => (picks.includes(word) ? picks.filter((w) => w !== word) : [...picks, word]));
-  };
+  const writingLength = expression.trim().length;
+  const canSubmit = writingLength >= MIN_WRITING_LENGTH;
 
   const handleSubmitResponse = () => {
-    if (currentPicks.length === 0) return;
-    const entry = { prompt: prompts[idx], picks: currentPicks, expression: expression.trim() };
-    const nextResponses = [...responses, entry];
-    setResponses(nextResponses);
-    setCurrentPicks([]);
-    setExpression('');
-    if (idx + 1 < prompts.length) {
-      setIdx((i) => i + 1);
-    } else {
-      const res = addCollectEntry({
-        studentId: student.id,
-        vocabWords: words.map((w) => w.word),
-        responses: nextResponses,
-      });
-      if (!res.ok) {
-        setToast(res.error || '저장에 실패했어요.');
-        setPhase('done');
-        return;
-      }
-      addPoints(student.id, energyRules.situationResponse, '상황별 반응 완료');
-      setToast(`2단계 완료! 감정 에너지 +${energyRules.situationResponse}pt`);
+    if (!canSubmit) return;
+    // 이제 낱말을 고르지 않고 글로 쓰기 때문에 picks는 비워 둔다 (기록 형식은 그대로 유지)
+    const entryResponses = [{ prompt, picks: [] as string[], expression: expression.trim() }];
+    setResponses(entryResponses);
+    const res = addCollectEntry({
+      studentId: student.id,
+      vocabWords: words.map((w) => w.word),
+      responses: entryResponses,
+    });
+    if (!res.ok) {
+      setToast(res.error || '저장에 실패했어요.');
       setPhase('done');
+      return;
     }
+    addPoints(student.id, energyRules.situationResponse, '상황별 반응 완료');
+    setToast(`2단계 완료! 감정 에너지 +${energyRules.situationResponse}pt`);
+    setPhase('done');
   };
 
   if (alreadyToday && todaysEntry) {
@@ -112,6 +125,17 @@ export default function Collect() {
             </div>
           </div>
 
+          {todaysEntry.responses[0] && (
+            <div className="mt-5 text-left">
+              <p className="text-sm font-bold text-brand-800 mb-2">✏️ 오늘의 글쓰기</p>
+              <div className="bg-brand-50 rounded-xl p-3 space-y-1">
+                <p className="text-xs text-brand-500">{todaysEntry.responses[0].prompt}</p>
+                {todaysEntry.responses[0].picks.length > 0 && <p className="text-sm text-brand-800">{todaysEntry.responses[0].picks.map((w) => `#${w}`).join('  ')}</p>}
+                {todaysEntry.responses[0].expression && <p className="text-sm text-brand-800 whitespace-pre-wrap">{todaysEntry.responses[0].expression}</p>}
+              </div>
+            </div>
+          )}
+
           <button onClick={() => navigate('/dashboard')} className="mt-6 w-full py-3 rounded-xl bg-brand-500 text-white font-bold shadow">
             로비로 돌아가기
           </button>
@@ -124,7 +148,7 @@ export default function Collect() {
   return (
     <PageShell
       title="감정 에너지 수집하기"
-      subtitle={phase === 'match' ? '1단계 · 어휘 매칭 (하루 1회)' : phase === 'situation' ? '2단계 · 상황별 반응' : '완료'}
+      subtitle={phase === 'match' ? '1단계 · 어휘 매칭 (하루 1회)' : phase === 'situation' ? '2단계 · 오늘의 상황 글쓰기' : '완료'}
       onBack="/dashboard"
     >
       {phase === 'match' && current && (
@@ -163,48 +187,27 @@ export default function Collect() {
 
       {phase === 'situation' && (
         <div className="bg-white rounded-2xl shadow p-6">
-          <p className="text-xs text-brand-600 mb-2">
-            {idx + 1} / {prompts.length}
+          <p className="text-xs text-brand-600 mb-2">오늘의 상황</p>
+          <p className="font-semibold text-brand-900 leading-relaxed mb-4">{prompt}</p>
+          <p className="text-xs text-brand-500 mb-2">그때 내 마음은 어떨지, 왜 그런 기분이 드는지 글로 써 봐요. 오늘 배운 낱말을 넣어 써도 좋아요!</p>
+          <textarea
+            value={expression}
+            onChange={(e) => setExpression(e.target.value)}
+            rows={5}
+            maxLength={300}
+            placeholder="예: 나는 ~해서 ~한 기분이 들 것 같아요."
+            className="w-full rounded-xl border border-brand-200 px-3 py-3 focus:outline-none focus:ring-2 focus:ring-brand-400"
+          />
+          <p className={`mt-1 text-right text-xs ${canSubmit ? 'text-brand-500' : 'text-zone-red'}`}>
+            {writingLength} / {MIN_WRITING_LENGTH}자 이상
           </p>
-          <p className="font-semibold text-brand-900 leading-relaxed mb-4">{prompts[idx]}</p>
-          <p className="text-xs text-brand-500 mb-2">나의 기분에 가까운 낱말을 골라봐요. 하나여도, 여러 개여도 괜찮아요!</p>
-          <div className="flex flex-wrap gap-2">
-            {responseWords.map((word) => {
-              const picked = currentPicks.includes(word);
-              return (
-                <button
-                  key={word}
-                  onClick={() => togglePick(word)}
-                  className={`min-h-[44px] px-4 py-2 rounded-full text-sm font-semibold border-2 transition active:scale-95 ${
-                    picked ? 'border-brand-500 bg-brand-500 text-white' : 'border-brand-200 bg-white text-brand-800'
-                  }`}
-                >
-                  {picked && '✓ '}
-                  {word}
-                </button>
-              );
-            })}
-          </div>
-
-          {currentPicks.length > 0 && (
-            <div className="mt-4 animate-pop">
-              <p className="text-xs text-brand-500 mb-2">그 기분을 어떻게 표현하면 좋을까요? (선택)</p>
-              <textarea
-                value={expression}
-                onChange={(e) => setExpression(e.target.value)}
-                rows={2}
-                placeholder="예: 나 지금 걱정돼. 같이 도와줄 수 있어?"
-                className="w-full rounded-xl border border-brand-200 px-3 py-3 focus:outline-none focus:ring-2 focus:ring-brand-400"
-              />
-            </div>
-          )}
 
           <button
             onClick={handleSubmitResponse}
-            disabled={currentPicks.length === 0}
-            className="mt-5 w-full py-3 rounded-xl bg-brand-500 text-white font-bold shadow disabled:opacity-40"
+            disabled={!canSubmit}
+            className="mt-4 w-full py-3 rounded-xl bg-brand-500 text-white font-bold shadow disabled:opacity-40"
           >
-            {idx + 1 < prompts.length ? '다음' : '제출하기'}
+            제출하기
           </button>
         </div>
       )}
@@ -220,8 +223,7 @@ export default function Collect() {
             {responses.map((r, i) => (
               <div key={i} className="text-sm text-brand-800">
                 <p className="text-xs text-brand-500">{r.prompt}</p>
-                <p>{r.picks.map((w) => `#${w}`).join('  ')}</p>
-                {r.expression && <p className="text-xs italic text-brand-600 mt-0.5">“{r.expression}”</p>}
+                {r.expression && <p className="text-sm text-brand-800 mt-1 whitespace-pre-wrap">{r.expression}</p>}
               </div>
             ))}
           </div>
