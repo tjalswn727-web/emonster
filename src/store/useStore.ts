@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { CollectEntry, EnergyTransaction, JournalEntry, MoodEntry, PurchaseRecord, ShopItem, Student, ZoneColor, EvolutionStage } from '../types';
-import { EVOLUTION_STONES, SHOP_REWARD_ITEMS } from '../data/monsters';
+import { EVOLUTION_MULTIPLIER, EVOLUTION_STONES, SHOP_REWARD_ITEMS } from '../data/monsters';
 import { REGULATION_TOOLS, ZONE_SCORE } from '../data/zones';
 import { pushRowToSheet } from '../lib/sheetsSync';
 import {
@@ -24,6 +24,21 @@ import {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+/** 감정 다스리기 도구의 에너지는 세 활동을 통틀어 이 시간에 한 번만 지급한다 */
+export const TOOL_COOLDOWN_MS = 60 * 60 * 1000;
+
+/** 기본 지급량에 진화 배율을 곱해 실제 지급량을 구한다 (반올림, 배율이 1 이상이면 기본량보다 줄지 않음) */
+export const applyEarnMultiplier = (base: number, multiplier: number): number => Math.max(0, Math.round(base * multiplier));
+
+/** 도구를 마지막으로 보상받은 시각(ms)을 기준으로, 지금 다시 에너지를 받을 수 있는지 — 세 도구가 쿨다운을 함께 쓴다 */
+export const canGetToolReward = (lastToolUse: Record<string, string> | undefined, now: number = Date.now()): boolean => {
+  const times = Object.values(lastToolUse ?? {})
+    .map((iso) => new Date(iso).getTime())
+    .filter((t) => Number.isFinite(t));
+  if (times.length === 0) return true;
+  return now - Math.max(...times) >= TOOL_COOLDOWN_MS;
+};
+
 export interface EnergyRules {
   vocabMatch: number;
   situationResponse: number;
@@ -36,7 +51,7 @@ export const ENERGY_RULE_LABELS: Record<keyof EnergyRules, { title: string; desc
   vocabMatch: { title: '어휘 매칭 완료', desc: '감정 에너지 수집하기 · 1단계 어휘 매칭', kind: 'reward' },
   situationResponse: { title: '상황별 반응 완료', desc: '감정 에너지 수집하기 · 2단계 상황별 반응', kind: 'reward' },
   journal: { title: '주식회사 일지 작성', desc: '하루 1회 작성 시 지급', kind: 'reward' },
-  regulationTool: { title: '감정 다스리기 도구 사용', desc: '10초 세기 / 심호흡 / 긍정 카드, 1시간 쿨다운', kind: 'reward' },
+  regulationTool: { title: '감정 다스리기 도구 사용', desc: '10초 세기 / 심호흡 / 긍정 카드 중 하나만 1시간에 한 번 지급', kind: 'reward' },
   eggSwitchCost: { title: '도감 · 다른 알로 교체', desc: '다른 몬스터 알로 바꿀 때 차감되는 비용', kind: 'cost' },
 };
 
@@ -86,7 +101,8 @@ interface StoreState {
   setTeacherPassword: (currentPassword: string, newPassword: string) => { ok: boolean; error?: string };
   teacherSetStudentPassword: (studentId: string, newPassword: string) => { ok: boolean; error?: string };
 
-  addPoints: (studentId: string, amount: number, reason?: string) => void;
+  /** 활동으로 에너지를 얻을 때 쓴다. 학생의 진화 배율을 곱해 지급하고, 실제로 지급한 양을 돌려준다 */
+  addPoints: (studentId: string, amount: number, reason?: string) => number;
   spendPoints: (studentId: string, amount: number, reason?: string) => boolean;
   evolveStudent: (studentId: string, stage: EvolutionStage) => void;
   switchSpecies: (studentId: string, targetSpeciesId: string) => { ok: boolean; error?: string };
@@ -103,7 +119,9 @@ interface StoreState {
   addCollectEntry: (entry: Omit<CollectEntry, 'id' | 'timestamp' | 'speciesId'>) => { ok: boolean; error?: string };
   setSheetsWebhookUrl: (url: string | null) => void;
 
-  canUseTool: (studentId: string, toolId: string) => boolean;
+  /** 지금 감정 다스리기 에너지를 받을 수 있는지 (세 도구 통틀어 1시간에 한 번) */
+  canUseTool: (studentId: string) => boolean;
+  /** 도구 사용을 기록하고, 에너지를 받을 수 있는 때라면 배율을 곱해 지급한 양을, 아니면 0을 돌려준다 */
   useTool: (studentId: string, toolId: string) => number;
 
   purchaseItem: (studentId: string, item: ShopItem) => { ok: boolean; error?: string };
@@ -281,16 +299,22 @@ export const useStore = create<StoreState>()(
       },
 
       addPoints: (studentId, amount, reason) => {
+        const student = get().students[studentId];
+        if (!student) return 0;
+        const multiplier = earnMultiplierFor(student);
+        const granted = applyEarnMultiplier(amount, multiplier);
         set((state) => {
           const s = state.students[studentId];
           if (!s) return state;
-          return { students: { ...state.students, [studentId]: { ...s, points: s.points + amount } } };
+          return { students: { ...state.students, [studentId]: { ...s, points: s.points + granted } } };
         });
         const s = get().students[studentId];
         if (s) {
           syncStudent(s);
-          logTransaction(studentId, 'earn', amount, reason ?? '기타 지급', s.points);
+          const baseReason = reason ?? '기타 지급';
+          logTransaction(studentId, 'earn', granted, multiplier > 1 ? `${baseReason} (기본 ${amount}pt × ${multiplier.toFixed(1)}배)` : baseReason, s.points);
         }
+        return granted;
       },
 
       spendPoints: (studentId, amount, reason) => {
@@ -498,15 +522,11 @@ export const useStore = create<StoreState>()(
         syncMeta({ sheetsWebhookUrl: url });
       },
 
-      canUseTool: (studentId, toolId) => {
-        const s = get().students[studentId];
-        if (!s || !s.lastToolUse || !s.lastToolUse[toolId]) return true;
-        const last = new Date(s.lastToolUse[toolId]).getTime();
-        return Date.now() - last >= 60 * 60 * 1000;
-      },
+      canUseTool: (studentId) => canGetToolReward(get().students[studentId]?.lastToolUse),
 
       useTool: (studentId, toolId) => {
-        const canReward = get().canUseTool(studentId, toolId);
+        // 에너지를 받을 수 없는 때(1시간 안에 이미 받음)에는 사용 시각을 갱신하지 않는다 — 갱신하면 쿨다운이 계속 밀린다
+        if (!get().students[studentId] || !get().canUseTool(studentId)) return 0;
         set((state) => {
           const s = state.students[studentId];
           if (!s) return state;
@@ -514,13 +534,8 @@ export const useStore = create<StoreState>()(
           syncStudent(updated);
           return { students: { ...state.students, [studentId]: updated } };
         });
-        if (canReward) {
-          const reward = get().energyRules.regulationTool;
-          const toolName = REGULATION_TOOLS.find((t) => t.id === toolId)?.name || toolId;
-          get().addPoints(studentId, reward, `감정 다스리기 도구 사용: ${toolName}`);
-          return reward;
-        }
-        return 0;
+        const toolName = REGULATION_TOOLS.find((t) => t.id === toolId)?.name || toolId;
+        return get().addPoints(studentId, get().energyRules.regulationTool, `감정 다스리기 도구 사용: ${toolName}`);
       },
 
       purchaseItem: (studentId, item) => {
@@ -610,6 +625,9 @@ export const useStore = create<StoreState>()(
     { name: 'emonster-store-v1' }
   )
 );
+
+/** 학생이 지금 키우는 몬스터의 에너지 획득 배율 — 도달한 최고 진화 단계 기준이라, 도감에서 이전 모습을 골라도 줄어들지 않는다 */
+export const earnMultiplierFor = (student: Student): number => EVOLUTION_MULTIPLIER[maxStageFor(student, student.speciesId)];
 
 /** 학생이 특정 종에서 실제로 도달한 최고 진화 단계 (도감의 이전 단계 미리보기 선택과 무관하게 항상 정확함) */
 export const maxStageFor = (student: Student, speciesId: string): EvolutionStage => {
